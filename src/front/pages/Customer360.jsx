@@ -72,9 +72,6 @@ export const Customer360 = () => {
   const [txns, setTxns] = useState([]);
   const [txForm, setTxForm] = useState({ direction: "INBOUND", amount: "", currency: "EUR", method: "SEPA", counterparty_name: "", counterparty_country: "" });
   const [txBusy, setTxBusy] = useState(false);
-  const [ip, setIp] = useState("");
-  const [ipResult, setIpResult] = useState(null);
-  const [ipBusy, setIpBusy] = useState(false);
   const [idvBusy, setIdvBusy] = useState(false);
   const [idvNote, setIdvNote] = useState(null);
   const [error, setError] = useState(null);
@@ -142,17 +139,6 @@ export const Customer360 = () => {
                  + `The customer completes it in the Sumsub flow.`);
     } catch (err) { setError(err.message); }
     finally { setIdvBusy(false); }
-  };
-
-  const checkIp = async (e) => {
-    e.preventDefault();
-    setError(null); setIpBusy(true); setIpResult(null);
-    try {
-      const r = await api.ipCheck(id, ip.trim());
-      setIpResult(r);
-      if (r.risky) await load();   // a signal may have raised an alert
-    } catch (err) { setError(err.message); }
-    finally { setIpBusy(false); }
   };
 
   const submitTx = async (e) => {
@@ -983,44 +969,6 @@ export const Customer360 = () => {
       </div>
       )}
 
-      {/* Fraud signals — onboarding IP check (AbuseIPDB) */}
-      {can(store.user, "screening.run") && (
-      <div className="row g-3 mt-0">
-        <div className="col-md-6">
-          <div className="co-card">
-            <div className="section-title">Fraud signals — onboarding IP</div>
-            <form onSubmit={checkIp} className="d-flex gap-2 align-items-end">
-              <input className="form-control form-control-sm" placeholder="IP address (e.g. 203.0.113.5)"
-                value={ip} onChange={(e) => setIp(e.target.value)} required />
-              <button className="btn btn-sm btn-co" disabled={ipBusy || !ip.trim()}>
-                {ipBusy ? "Checking…" : "Check"}
-              </button>
-            </form>
-            {ipResult && (
-              <div className="md-panel" style={{ marginTop: ".6rem" }}>
-                <div className="md-row">
-                  <span className="md-label">Abuse score</span>
-                  <span className="md-value">
-                    <span className={`chip ${ipResult.risky ? "HIGH" : "LOW"}`}>
-                      {ipResult.result.abuse_score}/100{ipResult.risky ? " · flagged" : " · clear"}
-                    </span>
-                  </span>
-                </div>
-                <div className="md-row"><span className="md-label">Reports</span><span className="md-value">{ipResult.result.total_reports}</span></div>
-                <div className="md-row"><span className="md-label">Country</span><span className="md-value">{ipResult.result.country || "—"}</span></div>
-                {ipResult.result.is_tor && <div className="md-row"><span className="md-label">Tor</span><span className="md-value" style={{ color: "var(--sev-high)" }}>Tor exit node</span></div>}
-                {ipResult.result.usage_type && <div className="md-row"><span className="md-label">Usage</span><span className="md-value">{ipResult.result.usage_type}</span></div>}
-                {ipResult.result.isp && <div className="md-row"><span className="md-label">ISP</span><span className="md-value">{ipResult.result.isp}</span></div>}
-              </div>
-            )}
-            <div className="muted" style={{ fontSize: ".78rem", marginTop: ".5rem" }}>
-              Needs an AbuseIPDB key (Administration → Integrations). A high
-              score raises a fraud-review task.
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
     </>
   );
 };

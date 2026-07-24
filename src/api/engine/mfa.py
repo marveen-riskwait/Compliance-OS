@@ -105,6 +105,12 @@ def verify(user, code):
     return _consume_backup(user, code)
 
 
+def verify_step_up(user, code):
+    """A step-up forced by a flagged IP: the account has no enrolled factor, so
+    the challenge is the emailed one-time code (or a backup code, if any)."""
+    return _email_otp_ok(user, code) or _consume_backup(user, code)
+
+
 def disable(user, actor=None):
     user.mfa_enabled = False
     user.mfa_method = None

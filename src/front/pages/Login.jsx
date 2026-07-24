@@ -50,7 +50,7 @@ export const Login = () => {
         window.history.replaceState({}, "", "/");
       } else if (mode === "login") {
         data = await api.login(email, password);
-        if (data.mfa_required) { setMfa({ ticket: data.ticket, method: data.method }); return; }
+        if (data.mfa_required) { setMfa({ ticket: data.ticket, method: data.method, stepUp: data.step_up, reason: data.reason }); return; }
         if (data.mfa_setup_required) {
           const enr = await api.mfaEnroll(data.ticket);
           setMfa({ ticket: data.ticket, setup: true, qr: enr.qr_svg, secret: enr.secret });
@@ -76,6 +76,11 @@ export const Login = () => {
               : "Two-factor authentication"}
           </h4>
           {error && <div className="alert alert-danger py-2">{error}</div>}
+          {mfa.reason && (
+            <div className="alert alert-warning py-2" style={{ fontSize: ".85rem" }}>
+              <i className="fa-solid fa-shield-halved" /> {mfa.reason}
+            </div>
+          )}
           {mfa.setup ? (
             <>
               <p className="muted" style={{ fontSize: ".85rem" }}>

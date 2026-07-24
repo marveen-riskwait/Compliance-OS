@@ -45,9 +45,11 @@ class AbuseIPDBProvider:
             return ("DEGRADED", "API key not configured")
         return ("UP", "credentials present")
 
-    def check(self, ip, max_age_days=90):
+    def check(self, ip, max_age_days=90, timeout=None):
         """Return a normalised fraud signal for an IP, or raise RuntimeError
-        with an actionable message when the key is missing / rejected."""
+        with an actionable message when the key is missing / rejected. `timeout`
+        overrides the default (the login path uses a tight one so a slow
+        AbuseIPDB never hangs sign-in)."""
         key = self._api_key()
         if not key:
             raise RuntimeError(
@@ -59,7 +61,7 @@ class AbuseIPDBProvider:
             "Key": key, "Accept": "application/json",
             "User-Agent": "ComplianceOS/1.0"})
         try:
-            with urllib.request.urlopen(req, timeout=_TIMEOUT,
+            with urllib.request.urlopen(req, timeout=timeout or _TIMEOUT,
                                         context=_ssl_context()) as r:
                 payload = json.loads(r.read().decode())
         except urllib.error.HTTPError as exc:

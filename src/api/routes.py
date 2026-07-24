@@ -44,12 +44,15 @@ from api.tasks import run_screening
 api = Blueprint("api", __name__)
 
 
-def _mfa_ticket(user):
-    """A 5-minute token that proves the password step only (mfa_pending)."""
+def _mfa_ticket(user, step_up=False):
+    """A 5-minute token that proves the password step only (mfa_pending). When
+    `step_up`, the second factor was forced by a flagged source IP even though
+    the account has no enrolled MFA — verified against an emailed code."""
     from flask_jwt_extended import create_access_token
     from datetime import timedelta
     return create_access_token(identity=str(user.id),
-                               additional_claims={"mfa_pending": True},
+                               additional_claims={"mfa_pending": True,
+                                                  "step_up": bool(step_up)},
                                expires_delta=timedelta(minutes=5))
 
 
@@ -215,6 +218,25 @@ def login():
     user.locked_until = None
     db.session.commit()
 
+    # Source-IP reputation (best-effort, never blocks sign-in). A flagged IP —
+    # high AbuseIPDB score or a Tor exit node — records a security event and,
+    # for a portal customer, an AML fraud signal on their file; it also forces
+    # a step-up second factor below.
+    from api.engine import ip_reputation
+    ip = ip_reputation.client_ip()
+    ip_result = ip_reputation.check(user.organization_id, ip)
+    ip_flagged = ip_reputation.is_flagged(ip_result)
+    if ip_flagged:
+        audit.record("LOGIN_IP_FLAGGED", "user", user.id, actor=user,
+                     new_value=f"{ip} · abuse {ip_result.get('abuse_score')}"
+                               + (" · TOR" if ip_result.get("is_tor") else ""),
+                     commit=True)
+        if user.is_portal_user() and user.customer_id:
+            from api.engine.events import emit_event
+            emit_event("IP_FRAUD_SIGNAL", customer_id=user.customer_id,
+                       severity="HIGH", source="abuseipdb", actor=user,
+                       payload={"ip": ip, "at": "portal_login", **ip_result})
+
     # Second factor. Staff enrol TOTP; portal customers get an emailed code.
     # A password-only pass must not open a session, so we return a short-lived
     # pending ticket that is useless until the second factor is presented.
@@ -229,6 +251,19 @@ def login():
         audit.record("LOGIN_MFA_PENDING", "user", user.id, actor=user, commit=True)
         return jsonify({"mfa_required": True, "method": user.mfa_method,
                         "ticket": _mfa_ticket(user)}), 200
+    if ip_flagged:
+        # Step-up: force an emailed code from a suspicious IP even though this
+        # account has no enrolled MFA. Every account has an inbox.
+        try:
+            mfa.send_email_otp(user)
+        except Exception:
+            pass
+        audit.record("LOGIN_MFA_STEPUP", "user", user.id, actor=user,
+                     new_value=f"flagged IP {ip}", commit=True)
+        return jsonify({"mfa_required": True, "method": "EMAIL_OTP",
+                        "step_up": True, "ticket": _mfa_ticket(user, step_up=True),
+                        "reason": "Sign-in from a flagged IP address — enter the "
+                                  "code we emailed you to continue."}), 200
     if mfa_enforced() and not user.is_portal_user():
         # Enforced but not yet enrolled: send them to set TOTP up first.
         audit.record("LOGIN_MFA_SETUP", "user", user.id, actor=user, commit=True)
@@ -352,10 +387,15 @@ def reset_password():
 @_rate_limit("10 per minute")
 def auth_mfa():
     """Second step of login: present the ticket + the code, get the session."""
+    from flask_jwt_extended import get_jwt
     from api.engine import mfa
     user = _ticket_user()
     code = ((request.get_json(silent=True) or {}).get("code") or "").strip()
-    if not mfa.verify(user, code):
+    # A step-up ticket (forced by a flagged IP on an account with no enrolled
+    # factor) is verified against the emailed code, not the user's method.
+    ok = (mfa.verify_step_up(user, code) if get_jwt().get("step_up")
+          else mfa.verify(user, code))
+    if not ok:
         audit.record("LOGIN_MFA_FAILED", "user", user.id, actor=user, commit=True)
         raise APIException("Invalid code", status_code=401)
     user.last_login_at = utcnow()
@@ -992,46 +1032,6 @@ def start_idv(user, cid):
                  new_value=f"sumsub ref {out.get('provider_reference')}",
                  commit=True)
     return jsonify(out), 200
-
-
-# ---------------------------------------------------------------------------
-# Fraud signals — onboarding IP check (AbuseIPDB)
-# ---------------------------------------------------------------------------
-@api.route("/customers/<int:cid>/ip-check", methods=["POST"])
-@permission_required("screening.run")
-def customer_ip_check(user, cid):
-    """Check an onboarding IP for fraud signals. A high abuse score raises an
-    IP_FRAUD_SIGNAL onto the spine (task + alert)."""
-    from api.engine.provider_service import find_provider
-    from api.integrations.providers.registry import get_adapter
-    from api.engine.events import emit_event
-    from api.engine import audit as audit_engine
-    customer = _get_customer_for(user, cid)
-    ip = (request.get_json(silent=True) or {}).get("ip", "").strip()
-    if not ip:
-        raise APIException("An IP address is required", status_code=400)
-
-    provider = find_provider(user.organization_id, name="AbuseIPDB",
-                             provider_type="FRAUD")
-    if provider is None:
-        raise APIException("No AbuseIPDB provider configured", status_code=409)
-    adapter = get_adapter(provider)
-    try:
-        result = adapter.check(ip)
-    except RuntimeError as exc:
-        raise APIException(str(exc), status_code=409)
-
-    threshold = 50
-    risky = result["abuse_score"] >= threshold or result["is_tor"]
-    audit_engine.record("IP_CHECKED", "customer", cid, actor=user,
-                        new_value=f"{ip} · abuse {result['abuse_score']}"
-                                  + (" · TOR" if result["is_tor"] else ""),
-                        commit=True)
-    if risky:
-        emit_event("IP_FRAUD_SIGNAL", customer_id=cid, severity="HIGH",
-                   source="abuseipdb", actor=user,
-                   payload={"ip": ip, **result})
-    return jsonify({"result": result, "risky": risky, "threshold": threshold}), 200
 
 
 # ---------------------------------------------------------------------------
