@@ -319,6 +319,9 @@ export const api = {
   // Permission management (clickable matrix + special authorizations)
   toggleRolePermission: (roleId, code, enabled) =>
     request(`/roles/${roleId}/permissions`, { method: "POST", body: { code, enabled } }),
+  createRole: (label, base_role) => request("/roles", { method: "POST", body: { label, base_role } }),
+  renameRole: (roleId, label) => request(`/roles/${roleId}`, { method: "PATCH", body: { label } }),
+  deleteRole: (roleId) => request(`/roles/${roleId}`, { method: "DELETE" }),
   toggleUserPermission: (userId, code, enabled) =>
     request(`/users/${userId}/permissions`, { method: "POST", body: { code, enabled } }),
 

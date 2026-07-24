@@ -1587,11 +1587,111 @@ def list_audit(user):
 # ---------------------------------------------------------------------------
 # RBAC (admin) — roles & permission catalog
 # ---------------------------------------------------------------------------
+def _visible_roles(user):
+    """System roles (org-agnostic) plus this organisation's own custom roles."""
+    return Role.query.filter(
+        (Role.organization_id.is_(None)) |
+        (Role.organization_id == user.organization_id)
+    ).order_by(Role.is_system.desc(), Role.name)
+
+
+def _resolve_role_for_assignment(user, role_name):
+    """A role name is assignable if it is a system role or one of this org's
+    custom roles — never another organisation's."""
+    from api.rbac import get_role
+    if role_name in ROLES:
+        return get_role(role_name)
+    role = Role.query.filter_by(name=role_name,
+                                organization_id=user.organization_id).first()
+    if role is None:
+        raise APIException(f"Unknown role: {role_name}", status_code=400)
+    return role
+
+
+def _custom_role_or_404(user, rid):
+    """Load a custom role owned by this org; refuse system / other-org roles."""
+    role = Role.query.get(rid)
+    if role is None:
+        raise APIException("Role not found", status_code=404)
+    if role.is_system:
+        raise APIException("System roles cannot be modified", status_code=409)
+    if role.organization_id != user.organization_id:
+        raise APIException("Custom role not found", status_code=404)
+    return role
+
+
 @api.route("/roles", methods=["GET"])
 @permission_required("role.view")
 def list_roles(user):
-    roles = Role.query.order_by(Role.name).all()
+    roles = _visible_roles(user).all()
     return jsonify([r.serialize(with_permissions=True) for r in roles]), 200
+
+
+@api.route("/roles", methods=["POST"])
+@permission_required("role.update")
+def create_role(user):
+    """Create a custom role for this organisation, optionally cloning the
+    permissions of an existing role (system or custom) as a starting point."""
+    import re
+    body = request.get_json(silent=True) or {}
+    label = (body.get("label") or "").strip()
+    if len(label) < 2:
+        raise APIException("A role name (min 2 chars) is required", status_code=400)
+
+    slug = re.sub(r"[^A-Z0-9]+", "_", label.upper()).strip("_")[:40] or "ROLE"
+    base_name = f"C{user.organization_id}_{slug}"
+    name, n = base_name, 1
+    while Role.query.filter_by(name=name).first() is not None:
+        n += 1
+        name = f"{base_name}_{n}"
+
+    role = Role(name=name, label=label, is_system=False,
+                organization_id=user.organization_id)
+    # Optional clone: seed the new role with another role's permissions.
+    base_role_name = body.get("base_role")
+    if base_role_name:
+        base = _resolve_role_for_assignment(user, base_role_name)
+        role.permissions = list(base.permissions)
+    db.session.add(role)
+    audit.record("ROLE_CREATED", "role", None, actor=user,
+                 new_value=label
+                 + (f" (from {base_role_name})" if base_role_name else ""),
+                 commit=True)
+    return jsonify(role.serialize(with_permissions=True)), 201
+
+
+@api.route("/roles/<int:rid>", methods=["PATCH"])
+@permission_required("role.update")
+def rename_role(user, rid):
+    role = _custom_role_or_404(user, rid)
+    body = request.get_json(silent=True) or {}
+    label = (body.get("label") or "").strip()
+    if len(label) < 2:
+        raise APIException("A role name (min 2 chars) is required", status_code=400)
+    old = role.label
+    role.label = label
+    audit.record("ROLE_RENAMED", "role", role.id, actor=user,
+                 old_value=old, new_value=label, commit=True)
+    return jsonify(role.serialize(with_permissions=True)), 200
+
+
+@api.route("/roles/<int:rid>", methods=["DELETE"])
+@permission_required("role.update")
+def delete_role(user, rid):
+    role = _custom_role_or_404(user, rid)
+    # Refuse while anyone still holds it — as a primary or an additional role.
+    holders = (User.query.filter(User.role_id == role.id).count()
+               + User.query.filter(User.roles.any(id=role.id)).count())
+    if holders:
+        raise APIException(
+            f"{holders} user(s) still hold this role — reassign them first.",
+            status_code=409)
+    label = role.label
+    role.permissions = []          # clear the M2M rows before removing the row
+    db.session.delete(role)
+    audit.record("ROLE_DELETED", "role", rid, actor=user,
+                 old_value=label, commit=True)
+    return jsonify({"deleted": True}), 200
 
 
 @api.route("/permissions", methods=["GET"])
@@ -1801,13 +1901,12 @@ def create_invitation(user):
     if User.query.filter_by(email=email).first():
         raise APIException("A user with this email already exists", status_code=409)
     role_name = body.get("proposed_role", "KYC_ANALYST")
-    if role_name not in ROLES:
-        raise APIException(f"Unknown role: {role_name}", status_code=400)
     # Only an admin can invite another admin.
     if role_name in ("ORGANIZATION_ADMIN", "PLATFORM_ADMIN", "ADMIN") \
             and not has_permission(user, "role.update"):
         raise APIException("Missing permission to invite an administrator",
                            status_code=403)
+    _resolve_role_for_assignment(user, role_name)   # validates system or own-org
     team_id = body.get("proposed_team_id")
     if team_id:
         team = Team.query.get(team_id)
@@ -1903,14 +2002,11 @@ def update_user(user, uid):
 
     if "role" in body:
         role_name = body["role"]
-        if role_name not in ROLES:
-            raise APIException(f"Unknown role: {role_name}", status_code=400)
         if role_name in ("ORGANIZATION_ADMIN", "PLATFORM_ADMIN", "ADMIN") \
                 and not has_permission(user, "role.update"):
             raise APIException("Missing permission to grant an administrator role",
                                status_code=403)
-        from api.rbac import get_role
-        role = get_role(role_name)
+        role = _resolve_role_for_assignment(user, role_name)
         audit.record("ROLE_ASSIGNED", "user", target.id, actor=user,
                      old_value=target.role, new_value=role_name)
         target.role = role_name
@@ -1944,14 +2040,11 @@ def add_user_role(user, uid):
         raise APIException("User not found", status_code=404)
     body = request.get_json(silent=True) or {}
     role_name = body.get("role")
-    if role_name not in ROLES:
-        raise APIException(f"Unknown role: {role_name}", status_code=400)
     if role_name in ("ORGANIZATION_ADMIN", "PLATFORM_ADMIN", "ADMIN") \
             and not has_permission(user, "role.update"):
         raise APIException("Missing permission to grant an administrator role",
                            status_code=403)
-    from api.rbac import get_role
-    role = get_role(role_name)
+    role = _resolve_role_for_assignment(user, role_name)
     if role in target.roles or (target.role_id and target.role_id == role.id):
         return jsonify(target.serialize()), 200
     target.roles.append(role)

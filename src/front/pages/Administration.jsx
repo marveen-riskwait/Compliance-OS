@@ -18,12 +18,19 @@ const UsersTab = ({ me }) => {
   const [error, setError] = useState(null);
   const [inviteForm, setInviteForm] = useState({ email: "", proposed_role: "KYC_ANALYST", proposed_team_id: "" });
   const [lastToken, setLastToken] = useState(null);
+  const [roleOptions, setRoleOptions] = useState(
+    ROLE_OPTIONS.map((r) => ({ value: r, label: r })));
 
   const load = useCallback(() => {
     api.users().then(setUsers).catch((e) => setError(e.message));
     api.invitations().then(setInvitations).catch(() => {});
     api.teams().then(setTeams).catch(() => {});
     api.permissionsCatalog().then(setCatalog).catch(() => {});
+    // System roles + this org's custom roles, so custom roles are assignable.
+    api.roles().then((rs) => setRoleOptions(
+      rs.filter((r) => r.name !== "PLATFORM_ADMIN" && r.name !== "ORGANIZATION_ADMIN")
+        .map((r) => ({ value: r.name, label: (r.label || r.name) + (r.is_system ? "" : " (custom)") }))
+    )).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -88,7 +95,7 @@ const UsersTab = ({ me }) => {
               <label className="form-label">Role</label>
               <select className="form-select" value={inviteForm.proposed_role}
                 onChange={(e) => setInviteForm({ ...inviteForm, proposed_role: e.target.value })}>
-                {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                {roleOptions.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </div>
             <div className="col-md-3">
@@ -136,7 +143,7 @@ const UsersTab = ({ me }) => {
                 <>
                   <select className="form-select form-select-sm" style={{ width: 190 }}
                     value={u.role} onChange={(e) => changeRole(u, e.target.value)}>
-                    {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                    {roleOptions.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                   </select>
                   <button className={`btn btn-sm ${u.is_active === false ? "btn-outline-success" : "btn-outline-danger"}`}
                     onClick={() => toggleActive(u, u.is_active === false)}>
@@ -327,7 +334,15 @@ const RolesTab = ({ me }) => {
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
   const [busyCode, setBusyCode] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ label: "", base_role: "" });
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameLabel, setRenameLabel] = useState("");
 
+  const reload = (selName) =>
+    api.roles().then((r) => { setRoles(r); if (selName) setSelected(selName); })
+      .catch((e) => setError(e.message));
   useEffect(() => {
     api.roles().then((r) => { setRoles(r); if (r.length) setSelected(r[0].name); })
       .catch((e) => setError(e.message));
@@ -336,6 +351,30 @@ const RolesTab = ({ me }) => {
 
   const role = roles.find((r) => r.name === selected);
   const canEdit = can(me, "role.update");
+
+  const createRole = async () => {
+    setError(null);
+    try {
+      const r = await api.createRole(form.label.trim(), form.base_role || undefined);
+      setCreating(false); setForm({ label: "", base_role: "" });
+      await reload(r.name);
+    } catch (e) { setError(e.message); }
+  };
+  const removeRole = async () => {
+    setError(null);
+    try {
+      await api.deleteRole(role.id);
+      setConfirmDel(false); setSelected(roles[0]?.name);
+      await reload();
+    } catch (e) { setError(e.message); setConfirmDel(false); }
+  };
+  const saveRename = async () => {
+    setError(null);
+    try {
+      const r = await api.renameRole(role.id, renameLabel.trim());
+      setRenaming(false); await reload(r.name);
+    } catch (e) { setError(e.message); }
+  };
   // Group catalog codes by domain prefix for a readable matrix.
   const groups = {};
   catalog.forEach(({ code }) => {
@@ -362,19 +401,81 @@ const RolesTab = ({ me }) => {
             <div className="section-title">Roles</div>
             {roles.map((r) => (
               <div key={r.id} className="work-row" style={{ cursor: "pointer" }}
-                onClick={() => setSelected(r.name)}>
+                onClick={() => { setSelected(r.name); setConfirmDel(false); setRenaming(false); }}>
                 <span className={`dotsev ${r.name === selected ? "HIGH" : "INFO"}`} />
-                <div className="grow"><div className="title">{r.label || r.name}</div>
-                  <div className="meta">{(r.permissions || []).length} permissions</div></div>
+                <div className="grow">
+                  <div className="title">
+                    {r.label || r.name}{" "}
+                    {!r.is_system && <span className="chip INFO" style={{ fontSize: ".65rem" }}>custom</span>}
+                  </div>
+                  <div className="meta">{(r.permissions || []).length} permissions</div>
+                </div>
               </div>
+            ))}
+            {canEdit && (creating ? (
+              <div className="wf-complete" style={{ marginTop: ".6rem" }}>
+                <input className="form-control form-control-sm" placeholder="Role name (e.g. Senior Reviewer)"
+                  value={form.label} autoFocus onChange={(e) => setForm({ ...form, label: e.target.value })} />
+                <select className="form-select form-select-sm" style={{ marginTop: ".4rem" }}
+                  value={form.base_role} onChange={(e) => setForm({ ...form, base_role: e.target.value })}>
+                  <option value="">Start from scratch (no permissions)</option>
+                  {roles.map((r) => <option key={r.id} value={r.name}>Copy from {r.label || r.name}</option>)}
+                </select>
+                <div className="d-flex gap-2" style={{ marginTop: ".45rem" }}>
+                  <button className="btn btn-sm btn-outline-secondary" onClick={() => setCreating(false)}>Cancel</button>
+                  <button className="btn btn-sm btn-co" disabled={form.label.trim().length < 2} onClick={createRole}>Create role</button>
+                </div>
+              </div>
+            ) : (
+              <button className="btn btn-sm btn-outline-primary" style={{ marginTop: ".6rem" }}
+                onClick={() => setCreating(true)}>
+                <i className="fa-solid fa-plus" /> New role
+              </button>
             ))}
           </div>
         </div>
         <div className="col-md-8">
           <div className="co-card">
-            <div className="section-title">Permissions — {selected || "…"}</div>
+            <div className="d-flex justify-content-between align-items-start" style={{ gap: ".5rem" }}>
+              <div className="section-title" style={{ marginBottom: 0 }}>
+                Permissions — {role?.label || selected || "…"}
+              </div>
+              {role && !role.is_system && canEdit && (
+                <div className="d-flex gap-2">
+                  <button className="btn btn-sm btn-outline-secondary"
+                    onClick={() => { setRenaming(true); setRenameLabel(role.label || ""); }}>Rename</button>
+                  <button className="btn btn-sm btn-outline-danger" onClick={() => setConfirmDel(true)}>Delete</button>
+                </div>
+              )}
+            </div>
+            {renaming && (
+              <div className="wf-complete" style={{ marginTop: ".5rem" }}>
+                <input className="form-control form-control-sm" value={renameLabel} autoFocus
+                  onChange={(e) => setRenameLabel(e.target.value)} />
+                <div className="d-flex gap-2" style={{ marginTop: ".4rem" }}>
+                  <button className="btn btn-sm btn-outline-secondary" onClick={() => setRenaming(false)}>Cancel</button>
+                  <button className="btn btn-sm btn-co" disabled={renameLabel.trim().length < 2} onClick={saveRename}>Save name</button>
+                </div>
+              </div>
+            )}
+            {confirmDel && (
+              <div className="wf-complete" style={{ marginTop: ".5rem" }}>
+                <div className="meta" style={{ marginBottom: ".4rem" }}>
+                  Delete “{role.label}”? Refused if any user still holds it.
+                </div>
+                <div className="d-flex gap-2">
+                  <button className="btn btn-sm btn-outline-secondary" onClick={() => setConfirmDel(false)}>Cancel</button>
+                  <button className="btn btn-sm btn-danger" onClick={removeRole}>Delete role</button>
+                </div>
+              </div>
+            )}
+            {role?.is_system && (
+              <div className="muted" style={{ fontSize: ".78rem", marginTop: ".3rem" }}>
+                <i className="fa-solid fa-lock" /> System role — permissions are editable, but it can't be renamed or deleted.
+              </div>
+            )}
             {canEdit && (
-              <p className="muted" style={{ fontSize: ".8rem", marginBottom: ".6rem" }}>
+              <p className="muted" style={{ fontSize: ".8rem", margin: ".5rem 0 .6rem" }}>
                 Click a permission to grant or revoke it for this role. Changes
                 apply immediately to every user holding the role and are audited.
               </p>

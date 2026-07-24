@@ -277,6 +277,10 @@ class Role(db.Model):
     name: Mapped[str] = mapped_column(String(60), unique=True, nullable=False)
     label: Mapped[str] = mapped_column(String(120), nullable=True)
     is_system: Mapped[bool] = mapped_column(Boolean, default=True)
+    # NULL = a system role, shared by every organisation and never deletable.
+    # Set = a custom role belonging to one organisation (created by its admin).
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organization.id"), nullable=True)
 
     permissions: Mapped[list["Permission"]] = relationship(
         secondary=role_permissions, lazy="selectin")
@@ -286,7 +290,8 @@ class Role(db.Model):
 
     def serialize(self, with_permissions=False):
         data = {"id": self.id, "name": self.name, "label": self.label,
-                "is_system": self.is_system}
+                "is_system": self.is_system,
+                "organization_id": self.organization_id}
         if with_permissions:
             data["permissions"] = sorted(self.permission_codes())
         return data
