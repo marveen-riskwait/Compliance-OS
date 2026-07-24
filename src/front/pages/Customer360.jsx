@@ -75,6 +75,8 @@ export const Customer360 = () => {
   const [ip, setIp] = useState("");
   const [ipResult, setIpResult] = useState(null);
   const [ipBusy, setIpBusy] = useState(false);
+  const [idvBusy, setIdvBusy] = useState(false);
+  const [idvNote, setIdvNote] = useState(null);
   const [error, setError] = useState(null);
   const [screening, setScreening] = useState(false);
   const [ownerForm, setOwnerForm] = useState({ owner_name: "", owner_kind: "PERSON", relationship_type: "SHAREHOLDER", percentage: "", country: "" });
@@ -131,6 +133,16 @@ export const Customer360 = () => {
   }, [id]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadKyb(); }, [loadKyb, screening]);
+
+  const startIdv = async () => {
+    setError(null); setIdvNote(null); setIdvBusy(true);
+    try {
+      const r = await api.startIdv(id);
+      setIdvNote(`Identity verification started (ref ${r.provider_reference || "—"}). `
+                 + `The customer completes it in the Sumsub flow.`);
+    } catch (err) { setError(err.message); }
+    finally { setIdvBusy(false); }
+  };
 
   const checkIp = async (e) => {
     e.preventDefault();
@@ -287,6 +299,12 @@ export const Customer360 = () => {
               <i className="fa-solid fa-wand-magic-sparkles" /> {enriching ? "Enriching…" : "Enrich"}
             </button>
           )}
+          {customer.customer_type === "INDIVIDUAL" && can(store.user, "kyc.review") && (
+            <button className="btn btn-outline-secondary" onClick={startIdv} disabled={idvBusy}
+              title="Documentary identity verification (Sumsub)">
+              <i className="fa-solid fa-id-card-clip" /> {idvBusy ? "Starting…" : "ID verification"}
+            </button>
+          )}
           {can(store.user, "data.export") && (
             <a className="btn btn-outline-secondary" href={api.dataExportUrl(id)}
               title="Export everything held on this subject (GDPR right of access)">
@@ -321,6 +339,11 @@ export const Customer360 = () => {
       {enrichNote && (
         <div className="alert alert-success py-2">
           <i className="fa-solid fa-wand-magic-sparkles" /> {enrichNote}
+        </div>
+      )}
+      {idvNote && (
+        <div className="alert alert-success py-2">
+          <i className="fa-solid fa-id-card-clip" /> {idvNote}
         </div>
       )}
 

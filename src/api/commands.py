@@ -498,7 +498,9 @@ def _seed_providers(org):
     specs = [
         ("Mock Identity", "KYC", "mock", True,
          [("webhook_secret", "demo-secret")]),
-        ("Sumsub", "KYC", "sumsub", False, []),
+        # Paid documentary IDV; enabled and dormant — the adapter reports a
+        # clear "configure app_token + secret_key" error until keyed.
+        ("Sumsub", "IDENTITY", "sumsub", True, []),
         ("ComplyAdvantage", "AML", "comply_advantage", False, []),
         # Real UK registry lookups; enabled because the adapter reports a clear
         # error until an api_key credential (or COMPANIES_HOUSE_API_KEY) is set.

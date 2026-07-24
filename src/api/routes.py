@@ -969,6 +969,32 @@ def ingest_transactions(user, cid):
 
 
 # ---------------------------------------------------------------------------
+# Documentary identity verification (Sumsub — paid, dormant until keyed)
+# ---------------------------------------------------------------------------
+@api.route("/customers/<int:cid>/idv/start", methods=["POST"])
+@permission_required("kyc.review")
+def start_idv(user, cid):
+    """Begin documentary IDV via Sumsub. Returns a WebSDK access token when
+    live; a clear 'configure Sumsub' error until the paid credentials are set."""
+    from api.engine.provider_service import find_provider
+    from api.integrations.providers.registry import get_adapter
+    customer = _get_customer_for(user, cid)
+    provider = find_provider(user.organization_id, name="Sumsub")
+    if provider is None:
+        raise APIException("No Sumsub provider configured", status_code=409)
+    adapter = get_adapter(provider)
+    try:
+        out = adapter.create_verification({"customer_id": customer.id,
+                                           "name": customer.name})
+    except RuntimeError as exc:
+        raise APIException(str(exc), status_code=409)
+    audit.record("IDV_STARTED", "customer", cid, actor=user,
+                 new_value=f"sumsub ref {out.get('provider_reference')}",
+                 commit=True)
+    return jsonify(out), 200
+
+
+# ---------------------------------------------------------------------------
 # Fraud signals — onboarding IP check (AbuseIPDB)
 # ---------------------------------------------------------------------------
 @api.route("/customers/<int:cid>/ip-check", methods=["POST"])

@@ -164,6 +164,7 @@ export const api = {
   setRetentionPolicy: (months) => request("/retention/policy", { method: "PUT", body: { months } }),
   runRetentionPurge: (dryRun) => request("/retention/purge", { method: "POST", body: { dry_run: !!dryRun } }),
   ipCheck: (cid, ip) => request(`/customers/${cid}/ip-check`, { method: "POST", body: { ip } }),
+  startIdv: (cid) => request(`/customers/${cid}/idv/start`, { method: "POST" }),
   addresses: (id) => request(`/customers/${id}/addresses`),
   addAddress: (id, payload) => request(`/customers/${id}/addresses`, { method: "POST", body: payload }),
   fields: (id) => request(`/customers/${id}/fields`),
