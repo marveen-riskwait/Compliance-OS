@@ -21,21 +21,32 @@ def has_no_empty_params(rule):
     return len(defaults) >= len(arguments)
 
 def generate_sitemap(app):
-    links = ['/admin/']
-    for rule in app.url_map.iter_rules():
-        # Filter out rules we can't navigate to in a browser
-        # and rules that require parameters
-        if "GET" in rule.methods and has_no_empty_params(rule):
-            url = url_for(rule.endpoint, **(rule.defaults or {}))
-            if "/admin/" not in url:
-                links.append(url)
-
-    links_html = "".join(["<li><a href='" + y + "'>" + y + "</a></li>" for y in links])
-    return """
-        <div style="text-align: center;">
-        <img style="max-height: 80px" src='https://storage.googleapis.com/breathecode/boilerplates/rigo-baby.jpeg' />
-        <h1>Rigo welcomes you to your API!!</h1>
-        <p>API HOST: <script>document.write('<input style="padding: 5px; width: 300px" type="text" value="'+window.location.href+'" />');</script></p>
-        <p>Start working on your project by following the <a href="https://start.4geeksacademy.com/starters/full-stack" target="_blank">Quick Start</a></p>
-        <p>Remember to specify a real endpoint path like: </p>
-        <ul style="text-align: left;">"""+links_html+"</ul></div>"
+    """The API root: a clean, branded status page. The full route listing is
+    only exposed in debug (a dev convenience), never in production."""
+    routes_html = ""
+    if app.debug:
+        links = []
+        for rule in app.url_map.iter_rules():
+            if "GET" in rule.methods and has_no_empty_params(rule):
+                url = url_for(rule.endpoint, **(rule.defaults or {}))
+                if "/admin/" not in url:
+                    links.append(url)
+        items = "".join("<li><a href='%s'>%s</a></li>" % (u, u) for u in sorted(links))
+        routes_html = ("<details style='margin-top:1.5rem;text-align:left'>"
+                       "<summary style='cursor:pointer;color:#6366f1'>Routes (debug)</summary>"
+                       "<ul>" + items + "</ul></details>")
+    return """<!doctype html><html lang="en"><head><meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Compliance OS API</title><link rel="icon" type="image/svg+xml" href="/logo.svg">
+        <style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+        font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#111a2e;color:#e7ecf5}
+        .card{text-align:center;max-width:520px;padding:2rem}
+        .badge{display:inline-flex;align-items:center;gap:.5rem;background:rgba(99,102,241,.15);
+        color:#a5b4fc;border:1px solid rgba(99,102,241,.35);border-radius:999px;padding:.35rem .8rem;
+        font-size:.8rem;font-weight:600}.dot{width:8px;height:8px;border-radius:50%;background:#22c55e}
+        h1{margin:1rem 0 .3rem;font-size:1.6rem}p{color:#9fb0cc;font-size:.9rem;line-height:1.5}
+        a{color:#a5b4fc}</style></head><body><div class="card">
+        <span class="badge"><span class="dot"></span> API online</span>
+        <h1>Compliance OS API</h1>
+        <p>AML/KYC/KYB compliance platform. This is the API service &mdash;
+        the application is served separately.</p>""" + routes_html + "</div></body></html>"
