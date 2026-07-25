@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { SiteFooter } from "../components/SiteFooter";
 
 // Public landing page (logged-out root). Serif editorial style on the app's
 // navy palette — the marketing face of the same design system as the shell.
@@ -91,9 +92,6 @@ export const Landing = () => (
       <Link to="/login" className="btn btn-lg ld-btn-accent">Get started free</Link>
     </section>
 
-    <footer className="ld-foot">
-      <span className="ld-brand"><span className="dot" /> Compliance OS</span>
-      <span className="muted">Built as a modular compliance platform — KYC · KYB · Screening · Risk · Workflows · Audit</span>
-    </footer>
+    <SiteFooter />
   </div>
 );

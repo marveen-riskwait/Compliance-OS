@@ -23,6 +23,7 @@ import { Chat } from "./pages/Chat";
 import { Profile } from "./pages/Profile";
 import { VerifyEmail } from "./pages/VerifyEmail";
 import { ResetPassword } from "./pages/ResetPassword";
+import { Legal } from "./pages/Legal";
 
 export const router = createBrowserRouter(
   createRoutesFromElements(
@@ -35,6 +36,10 @@ export const router = createBrowserRouter(
           before the auth gate; the route entries just let React Router match. */}
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      {/* Public legal pages — Layout renders <Legal /> by pathname before the
+          auth gate; these entries just let React Router match the URLs. */}
+      <Route path="/legal" element={<Legal />} />
+      <Route path="/legal/:slug" element={<Legal />} />
       <Route path="/assistant" element={<Assistant />} />
       <Route path="/chat" element={<Chat />} />
       <Route path="/customers" element={<Customers />} />
