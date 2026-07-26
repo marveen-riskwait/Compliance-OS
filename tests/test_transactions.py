@@ -87,3 +87,48 @@ def test_ingest_requires_permission(client, tokens):
                     headers=auth(tokens["outsider@test.io"]),
                     json={"amount": 10})
     assert r.status_code in (403, 404)  # outsider: another org
+
+
+# --- Counterparty screening (details from our providers) -------------------
+def _ingest_tx(client, token, cid, **kw):
+    payload = {"direction": "OUTBOUND", "amount": 500, "currency": "EUR", "method": "SEPA"}
+    payload.update(kw)
+    return client.post(f"/api/customers/{cid}/transactions", headers=auth(token), json=payload)
+
+
+def test_sanctioned_counterparty_flags_transaction_with_full_detail(client, tokens):
+    officer = tokens["officer@test.io"]
+    cid = client.post("/api/customers", headers=auth(officer),
+                      json={"name": "CP Screen Co", "customer_type": "COMPANY",
+                            "country": "Luxembourg"}).get_json()["id"]
+    # "Ivanov" triggers the mock SANCTIONS (87) and PEP (91) matches.
+    r = _ingest_tx(client, officer, cid, counterparty_name="Ivan Ivanov",
+                   counterparty_country="Russia", amount=500)
+    tx = r.get_json()["transactions"][0]
+    assert tx["flagged"] is True
+    assert "SANCTIONED_COUNTERPARTY" in tx["flags"]
+    assert "PEP_COUNTERPARTY" in tx["flags"]
+
+    # The full provider detail is persisted on the transaction.
+    detail = {d["code"]: d for d in tx["flag_details"]}
+    sanc = detail["SANCTIONED_COUNTERPARTY"]
+    assert sanc["severity"] == "CRITICAL"
+    assert sanc["match"]["source"]
+    assert sanc["match"]["matched_name"]
+    assert sanc["match"]["match_score"] >= 70
+
+    # A critical alert was raised on the spine.
+    alerts = client.get("/api/alerts", headers=auth(officer)).get_json()
+    assert any(a["customer_id"] == cid and a["alert_type"] == "TRANSACTION_ALERT"
+               for a in alerts)
+
+
+def test_clean_counterparty_not_flagged_by_screening(client, tokens):
+    officer = tokens["officer@test.io"]
+    cid = client.post("/api/customers", headers=auth(officer),
+                      json={"name": "CP Clean Co", "customer_type": "COMPANY",
+                            "country": "Luxembourg"}).get_json()["id"]
+    r = _ingest_tx(client, officer, cid, counterparty_name="Acme Trading Ltd",
+                   counterparty_country="Luxembourg", amount=500)
+    tx = r.get_json()["transactions"][0]
+    assert not any(f.endswith("_COUNTERPARTY") for f in tx["flags"])

@@ -40,6 +40,45 @@ PASSTHROUGH_WINDOW_HOURS = int(_num("TM_PASSTHROUGH_WINDOW_HOURS", 48))
 PASSTHROUGH_MIN = _num("TM_PASSTHROUGH_MIN", 10000)
 PASSTHROUGH_RATIO = _num("TM_PASSTHROUGH_RATIO", 0.9)
 CASH_THRESHOLD = _num("TM_CASH_THRESHOLD", 3000)
+# Minimum screening score for a counterparty match to flag a transaction. Kept
+# deliberately sensitive — for sanctions exposure, over-alerting and reviewing
+# beats missing a hit. Tunable via env.
+COUNTERPARTY_SCREEN_MIN = int(_num("TM_COUNTERPARTY_SCREEN_MIN", 70))
+
+# Screening match_type -> (detector code, severity) for the counterparty.
+_CP_SCREEN = {
+    "SANCTIONS": ("SANCTIONED_COUNTERPARTY", "CRITICAL"),
+    "PEP": ("PEP_COUNTERPARTY", "HIGH"),
+    "ADVERSE_MEDIA": ("ADVERSE_MEDIA_COUNTERPARTY", "MEDIUM"),
+}
+
+
+def _screen_counterparty(tx):
+    """Screen the transaction's counterparty against our screening providers and
+    return fired detectors carrying the full provider match detail. Best-effort:
+    a screening failure must never block ingestion of a transaction."""
+    name = (tx.counterparty_name or "").strip()
+    if len(name) < 3:
+        return []
+    try:
+        from api.integrations.screening import get_provider
+        hits = get_provider().screen(name, country=tx.counterparty_country)
+    except Exception:
+        return []
+    fired = []
+    for h in hits:
+        if h.match_score < COUNTERPARTY_SCREEN_MIN:
+            continue
+        code, severity = _CP_SCREEN.get(h.match_type, (None, None))
+        if not code:
+            continue
+        fired.append({
+            "code": code, "severity": severity,
+            "detail": f"Counterparty “{name}” matches “{h.matched_name}” on "
+                      f"{h.source} (score {h.match_score})",
+            "match": h.as_dict(),   # list, programs, aliases, country, remarks…
+        })
+    return fired
 
 
 def _high_risk_countries(organization_id):
@@ -130,6 +169,11 @@ def _detect(tx, customer):
         fired.append({"code": "CASH_INTENSIVE", "severity": "MEDIUM",
                       "detail": f"Cash movement of {amt:,.0f} {tx.currency} "
                                 f"(threshold {CASH_THRESHOLD:,.0f})"})
+
+    # 7. Counterparty screening — the richest signal our providers can give on a
+    #    payment: is the sender/beneficiary on a sanctions, PEP or adverse-media
+    #    list? Carries the full match detail for the analyst.
+    fired.extend(_screen_counterparty(tx))
     return fired
 
 
@@ -181,6 +225,7 @@ def ingest(customer, data, actor=None):
 
     fired = _detect(tx, customer)
     tx.flags = [f["code"] for f in fired]
+    tx.flag_details = fired          # full evidence, incl. counterparty matches
     tx.flagged = bool(fired)
     audit.record("TRANSACTION_INGESTED", "customer", customer.id, actor=actor,
                  new_value=f"{tx.direction} {amount:,.0f} {currency}"

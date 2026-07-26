@@ -19,9 +19,12 @@ DIRECTIONS = ("INBOUND", "OUTBOUND")
 METHODS = ("SEPA", "SWIFT", "CARD", "DIRECT_DEBIT", "CASH", "CHEQUE",
            "CRYPTO", "EMONEY", "INTERNAL", "OTHER")
 
-# Detector codes a transaction can be flagged with.
+# Detector codes a transaction can be flagged with. The *_COUNTERPARTY codes
+# come from screening the counterparty against our screening providers.
 DETECTORS = ("LARGE_AMOUNT", "HIGH_RISK_COUNTRY", "STRUCTURING",
-             "VELOCITY", "RAPID_PASSTHROUGH", "CASH_INTENSIVE")
+             "VELOCITY", "RAPID_PASSTHROUGH", "CASH_INTENSIVE",
+             "SANCTIONED_COUNTERPARTY", "PEP_COUNTERPARTY",
+             "ADVERSE_MEDIA_COUNTERPARTY")
 
 
 class Transaction(db.Model):
@@ -56,6 +59,9 @@ class Transaction(db.Model):
     # transaction is flagged at all. The evidence for each lives on the
     # TRANSACTION_ALERT event, not here.
     flags: Mapped[list] = mapped_column(JSON, default=list)
+    # Full evidence for each fired detector (code, severity, detail, and — for
+    # counterparty screening — the provider match with list, programs, aliases).
+    flag_details: Mapped[list] = mapped_column(JSON, default=list)
     flagged: Mapped[bool] = mapped_column(Boolean, default=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -75,6 +81,7 @@ class Transaction(db.Model):
             "reference": self.reference,
             "booked_at": self.booked_at.isoformat() if self.booked_at else None,
             "flags": self.flags or [],
+            "flag_details": self.flag_details or [],
             "flagged": self.flagged,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

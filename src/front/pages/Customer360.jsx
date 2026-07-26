@@ -20,7 +20,11 @@ const DETECTOR_LABELS = {
   VELOCITY: "Velocity",
   RAPID_PASSTHROUGH: "Pass-through",
   CASH_INTENSIVE: "Cash-intensive",
+  SANCTIONED_COUNTERPARTY: "Sanctioned counterparty",
+  PEP_COUNTERPARTY: "PEP counterparty",
+  ADVERSE_MEDIA_COUNTERPARTY: "Adverse media (counterparty)",
 };
+const SEV_CHIP = { CRITICAL: "CRITICAL", HIGH: "HIGH", MEDIUM: "MEDIUM", LOW: "LOW" };
 const money = (a, c) => `${Number(a || 0).toLocaleString()} ${c || ""}`.trim();
 
 // Map a screening-match status to a severity chip colour.
@@ -911,14 +915,35 @@ export const Customer360 = () => {
                   </div>
                   <div className="meta">
                     {t.method || "—"} · {t.booked_at ? new Date(t.booked_at).toLocaleDateString() : "—"}
-                    {(t.flags || []).length > 0 && (
-                      <> · {t.flags.map((f) => (
-                        <span key={f} className="chip HIGH" style={{ marginLeft: 4 }}>
-                          {DETECTOR_LABELS[f] || f}
-                        </span>
-                      ))}</>
-                    )}
+                    {(t.flag_details || []).map((d) => (
+                      <span key={d.code} className={`chip ${SEV_CHIP[d.severity] || "HIGH"}`} style={{ marginLeft: 4 }}>
+                        {DETECTOR_LABELS[d.code] || d.code}
+                      </span>
+                    ))}
+                    {(t.flag_details || []).length === 0 && (t.flags || []).map((f) => (
+                      <span key={f} className="chip HIGH" style={{ marginLeft: 4 }}>{DETECTOR_LABELS[f] || f}</span>
+                    ))}
                   </div>
+                  {t.flagged && (t.flag_details || []).length > 0 && (
+                    <details className="tx-details">
+                      <summary>Why flagged</summary>
+                      {t.flag_details.map((d, i) => (
+                        <div key={i} className="tx-ev">
+                          <b>{DETECTOR_LABELS[d.code] || d.code}</b> — {d.detail}
+                          {d.match && (
+                            <div className="tx-ev-match">
+                              <i className="fa-solid fa-triangle-exclamation" />{" "}
+                              <b>{d.match.source}</b>: “{d.match.matched_name}” · score {d.match.match_score}
+                              {d.match.data?.programs?.length > 0 && <div>Programmes: {d.match.data.programs.join(", ")}</div>}
+                              {d.match.data?.aliases?.length > 0 && <div>Aliases: {d.match.data.aliases.join(", ")}</div>}
+                              {d.match.data?.country && <div>Country: {d.match.data.country}</div>}
+                              {d.match.data?.list_source && <div>List: {d.match.data.list_source}{d.match.data.external_id ? ` (${d.match.data.external_id})` : ""}</div>}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </details>
+                  )}
                 </div>
                 {t.flagged
                   ? <span className="chip HIGH">FLAGGED</span>
