@@ -779,3 +779,14 @@ h1, h2, h3, h4, .co-serif {
   border-left: 3px solid #d64545; border-radius: 8px; color: #7a2020; font-size: .8rem; }
 .tx-ev-match i { color: #d64545; }
 .tx-ev-match div { margin-top: .15rem; }
+
+/* ---- Customer file tabs ---- */
+.c360-tabs { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem;
+  border-bottom: 1px solid var(--co-border); padding-bottom: .2rem; overflow-x: auto; }
+.c360-tab { border: 1px solid transparent; background: transparent; color: var(--co-muted);
+  font-size: .88rem; font-weight: 600; padding: .5rem .85rem; border-radius: 9px 9px 0 0;
+  cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: .45rem;
+  border-bottom: 2px solid transparent; margin-bottom: -3px; }
+.c360-tab i { opacity: .8; }
+.c360-tab:hover { color: var(--co-ink); background: var(--co-bg); }
+.c360-tab.active { color: var(--co-primary); border-bottom-color: var(--co-primary); background: var(--co-surface); }
