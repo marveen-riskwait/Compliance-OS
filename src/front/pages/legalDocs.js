@@ -1,9 +1,10 @@
 // Legal content for Compliance OS. Governing law: Luxembourg. Language: English.
-// Entity-specific facts are [PLACEHOLDERS] to be completed by the operator.
 //
-// IMPORTANT: these are information-only drafts, NOT legal advice. They must be
-// reviewed and adapted by qualified Luxembourg legal counsel before being relied
-// on. The Legal page renders a visible banner to that effect on every document.
+// DEMONSTRATION MODE: this is a personal, non-commercial demonstration project
+// by Marveen Riskwait — no company is registered and no live service is offered.
+// The documents below are illustrative (they show the framework the product is
+// designed around) and are NOT binding. The official template version, with
+// placeholders, is backed up outside the repo at ../legal-official-backup/.
 //
 // Block grammar consumed by Legal.jsx:
 //   "text"                      -> paragraph (supports **bold**)
@@ -12,8 +13,8 @@
 //   { ol: [ "item", ... ] }     -> numbered list
 //   { note: "text" }            -> callout box
 
-export const LEGAL_UPDATED = "25 July 2026";
-const COMPANY = "[COMPANY LEGAL NAME]";
+export const LEGAL_UPDATED = "29 July 2026";
+const COMPANY = "Demo compliance.OS";
 
 export const LEGAL_INDEX = [
   { slug: "notice", title: "Legal Notice", blurb: "Publisher, host and editorial responsibility." },
@@ -34,36 +35,36 @@ export const LEGAL_DOCS = {
       { h: "Publisher", blocks: [
         "This website and the Compliance OS application (the **“Platform”**) are published by:",
         { ul: [
-          "**Company:** " + COMPANY + " ([LEGAL FORM, e.g. S.à r.l.])",
-          "**Registered office:** [REGISTERED ADDRESS], Grand Duchy of Luxembourg",
-          "**Trade & Companies Register (RCS Luxembourg):** [RCS NUMBER]",
-          "**VAT identification number:** [LU VAT NUMBER]",
-          "**Share capital:** [AMOUNT] EUR",
-          "**Email:** [CONTACT EMAIL]",
-          "**Telephone:** [PHONE]",
-          "**Director of publication:** [NAME, TITLE]",
+          "**Publisher:** Marveen Riskwait — “" + COMPANY + "”, a **personal demonstration project** (no company is registered)",
+          "**Nature:** non-commercial demonstration; no service is sold or offered",
+          "**Registered office:** not applicable — demonstration project (contact by email only)",
+          "**Trade & Companies Register (RCS):** not applicable — demonstration",
+          "**VAT identification number:** not applicable — demonstration",
+          "**Share capital:** not applicable — demonstration",
+          "**Email:** demo.compliance.os@gmail.com",
+          "**Director of publication:** Marveen Riskwait",
         ] },
       ] },
       { h: "Host", blocks: [
         "The Platform is hosted by:",
         { ul: [
-          "**Host:** [HOSTING PROVIDER NAME]",
-          "**Address:** [HOSTING PROVIDER ADDRESS]",
-          "**Contact:** [HOSTING PROVIDER CONTACT / URL]",
+          "**Host:** Fly.io (Fly.io, Inc.)",
+          "**Location:** San Francisco, California, USA",
+          "**Contact:** https://fly.io",
         ] },
-        "The operator remains responsible for the content it publishes on the Platform.",
+        "The publisher remains responsible for the content it publishes on the Platform.",
       ] },
       { h: "Intellectual property", blocks: [
         "The Platform, its software, source code, structure, databases, design, graphics, the “Compliance OS” name and logo, and all related content are the property of " + COMPANY + " or are used under licence, and are protected by intellectual-property law.",
         "No reproduction, representation, adaptation, extraction or reuse, in whole or in part, of any element of the Platform is permitted without the prior written authorisation of the publisher, save for the rights expressly granted under the Terms of Service.",
       ] },
       { h: "Editorial responsibility and disclaimer", blocks: [
-        "The Platform is a professional software tool intended to assist regulated entities and compliance professionals. The information, screening results, risk scores, regulatory mappings and AI-generated outputs it produces are provided for professional information and operational assistance only.",
-        { note: "Nothing on the Platform constitutes legal, regulatory, tax or compliance advice, nor a substitute for the judgement of the user’s own qualified compliance function. The publisher gives no warranty that the information is complete, accurate or up to date. Use of the Platform does not guarantee compliance with any legal or regulatory obligation." },
-        "The publisher’s liability in connection with the Platform is governed and limited by the Terms of Service.",
+        "The Platform is a **demonstration** of a compliance software concept. Any screening results, risk scores, regulatory mappings and AI-generated outputs it produces are illustrative only and must not be relied upon.",
+        { note: "**Marveen Riskwait disclaims all liability. This is a demonstration version.** Nothing on the Platform constitutes legal, regulatory, tax or compliance advice, no warranty of any kind is given, and use of the Platform does not guarantee compliance with any legal or regulatory obligation." },
+        "**Do not enter any real personal data.** This is a public demonstration — use only fictitious data. Demonstration data may be reset or deleted at any time.",
       ] },
       { h: "Governing law", blocks: [
-        "This Legal Notice is governed by Luxembourg law. Any dispute relating to the Platform falls within the jurisdiction of the courts of the city of Luxembourg, subject to any mandatory rule to the contrary.",
+        "As a non-binding demonstration, these documents create no obligation. To the extent any framework is referenced, it is the law of the Grand Duchy of Luxembourg (the market the product is designed for) — as illustrative context only.",
       ] },
     ],
   },
@@ -125,7 +126,7 @@ export const LEGAL_DOCS = {
       ] },
       { h: "11. Limitation of liability", blocks: [
         "To the fullest extent permitted by law, the publisher shall not be liable for any indirect, incidental, special or consequential loss, nor for any loss of profit, revenue, data, goodwill, or for regulatory sanctions or fines incurred by the Customer.",
-        "To the fullest extent permitted by law, the publisher’s total aggregate liability arising out of or in connection with the Platform shall not exceed the total fees paid by the Customer for the Services during the twelve (12) months preceding the event giving rise to the claim (or [CAP AMOUNT] EUR where no fees have been paid).",
+        "This is a free demonstration provided **“as is”**. To the fullest extent permitted by law, the publisher’s liability is entirely excluded — **Marveen Riskwait disclaims all liability** for any use of this demonstration.",
         { note: "Nothing in these Terms excludes or limits liability that cannot lawfully be excluded or limited, including liability for fraud, wilful misconduct, gross negligence, or death or personal injury caused by negligence." },
       ] },
       { h: "12. Indemnification", blocks: [
@@ -180,7 +181,7 @@ export const LEGAL_DOCS = {
         "By using the Platform, the Customer and each Authorised User warrant that they: (i) act in a professional capacity within a legitimate compliance purpose; (ii) have a valid legal basis and authority for the processing carried out; (iii) provide accurate information; (iv) apply meaningful human oversight to any decision affecting a person; and (v) comply with all applicable data-protection and anti-money-laundering law.",
       ] },
       { h: "4. Enforcement and reporting", blocks: [
-        "Breach of this Policy may result in immediate suspension or termination and gives rise to the indemnity in the Terms of Service. Suspected misuse can be reported to [ABUSE / COMPLIANCE CONTACT EMAIL].",
+        "Breach of this Policy may result in immediate suspension or termination and gives rise to the indemnity in the Terms of Service. Suspected misuse can be reported to demo.compliance.os@gmail.com.",
       ] },
     ],
   },
@@ -229,7 +230,7 @@ export const LEGAL_DOCS = {
         ] },
       ] },
       { h: "7. Your rights", blocks: [
-        "Subject to the conditions set by law, you have the right to access, rectify, erase, restrict and object to the processing of your personal data, and to data portability. To exercise these rights, contact [DPO / PRIVACY CONTACT EMAIL].",
+        "Subject to the conditions set by law, you have the right to access, rectify, erase, restrict and object to the processing of your personal data, and to data portability. To exercise these rights, contact demo.compliance.os@gmail.com.",
         { note: "Where personal data must be retained under anti-money-laundering law, the right to erasure may be restricted for the duration of the legal retention period. Requests concerning data processed by the Customer as controller should be addressed to that Customer." },
         "You also have the right to lodge a complaint with the Luxembourg supervisory authority, the **Commission nationale pour la protection des données (CNPD)**, or with the authority of your habitual residence.",
       ] },
@@ -237,7 +238,7 @@ export const LEGAL_DOCS = {
         "We implement appropriate technical and organisational measures to protect personal data, including encryption in transit, access controls, role-based permissions, audit logging and two-factor authentication. See the Cookie Policy for the cookies we use.",
       ] },
       { h: "9. Contact and changes", blocks: [
-        "For any privacy question, contact [DPO / PRIVACY CONTACT EMAIL] or write to " + COMPANY + ", [REGISTERED ADDRESS]. We may update this Policy; the current version is always available here with its date.",
+        "For any privacy question, contact demo.compliance.os@gmail.com. We may update this Policy; the current version is always available here with its date.",
       ] },
     ],
   },
@@ -278,7 +279,7 @@ export const LEGAL_DOCS = {
         ] },
       ] },
       { h: "5. Sub-processors", blocks: [
-        "The Customer authorises the use of sub-processors for hosting and operating the Platform, including [HOSTING PROVIDER] and [OTHER SUB-PROCESSORS]. An up-to-date list is available on request. " + COMPANY + " remains liable for its sub-processors’ compliance with these obligations.",
+        "The Customer authorises the use of sub-processors for hosting and operating the Platform, namely **Fly.io** (hosting). " + COMPANY + " remains liable for its sub-processors’ compliance with these obligations.",
       ] },
       { h: "6. International transfers and liability", blocks: [
         "Any transfer of personal data outside the EEA is made under an adequacy decision or appropriate safeguards (e.g. Standard Contractual Clauses). The liability provisions of the Terms of Service apply to this DPA. In case of conflict on data-protection matters, this DPA prevails.",

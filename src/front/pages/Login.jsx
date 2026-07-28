@@ -212,9 +212,10 @@ export const Login = () => {
         </div>
 
         {mode === "login" && (
-          <div className="mt-3 p-2" style={{ background: "#f4f5f9", borderRadius: 8, fontSize: ".78rem" }}>
-            <b>Demo:</b> analyst@demo.io · officer@demo.io — password <code>demo1234</code><br />
-            <span className="muted">Run <code>flask seed-demo</code> to create them.</span>
+          <div className="mt-3 p-2" style={{ background: "#fff8e6", border: "1px solid #f2d98a", borderRadius: 8, fontSize: ".78rem" }}>
+            <b><i className="fa-solid fa-triangle-exclamation" style={{ color: "#d39e00" }} /> Demonstration project.</b>{" "}
+            Use fictitious data only — <b>do not enter real personal data</b>.<br />
+            <span className="muted">Try it: <code>analyst@demo.io</code> · <code>officer@demo.io</code> — password <code>demo1234</code></span>
           </div>
         )}
       </form>

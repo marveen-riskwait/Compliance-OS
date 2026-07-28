@@ -13,8 +13,8 @@ export const SiteFooter = () => (
           risk, monitoring, case management and regulatory reporting.
         </p>
         <p className="site-foot-pro">
-          <i className="fa-solid fa-building-shield" /> For professional use by
-          regulated and obliged entities only. Not legal advice.
+          <i className="fa-solid fa-triangle-exclamation" /> Demonstration project —
+          not a live service. Do not enter real personal data.
         </p>
       </div>
       <nav className="site-foot-links" aria-label="Legal">
@@ -31,8 +31,8 @@ export const SiteFooter = () => (
       </nav>
     </div>
     <div className="site-foot-bottom">
-      <span>© {new Date().getFullYear()} [COMPANY LEGAL NAME]. All rights reserved.</span>
-      <span className="muted">Governed by the laws of the Grand Duchy of Luxembourg.</span>
+      <span>© {new Date().getFullYear()} Marveen Riskwait — Demo compliance.OS. Demonstration project.</span>
+      <span className="muted">Marveen Riskwait disclaims all liability. This is a demonstration version.</span>
     </div>
   </footer>
 );

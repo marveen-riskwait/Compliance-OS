@@ -62,9 +62,10 @@ const DraftBanner = () => (
   <div className="lg-draft">
     <i className="fa-solid fa-triangle-exclamation" />
     <span>
-      <strong>Template — not legal advice.</strong> These documents are provided for
-      information and must be reviewed and adapted by qualified Luxembourg legal
-      counsel, and completed with the operator’s details, before being relied upon.
+      <strong>Demonstration project — not a live service.</strong> Marveen Riskwait
+      disclaims all liability; this is a demonstration version. These documents are
+      illustrative and not binding, and nothing here is legal advice.{" "}
+      <strong>Do not enter any real personal data — use fictitious data only.</strong>
     </span>
   </div>
 );
