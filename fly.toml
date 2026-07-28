@@ -1,0 +1,30 @@
+# Fly.io — single-app deployment of Compliance OS (demonstration).
+# One machine, SQLite on a persistent volume mounted at /data.
+
+app = "compliance-os"
+primary_region = "cdg"   # Paris — close to the Luxembourg/France target
+
+[build]
+
+[env]
+  PORT = "8080"
+  # SQLite lives on the persistent volume so it survives restarts.
+  DATABASE_URL = "sqlite:////data/compliance.sqlite"
+  # JWT_SECRET_KEY and (optionally) ABUSEIPDB_API_KEY are set with `fly secrets`.
+
+[[mounts]]
+  source = "compliance_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Scale to zero when idle to save cost; the volume keeps the data.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

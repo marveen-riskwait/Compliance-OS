@@ -1,0 +1,22 @@
+# Never ship the local dev database, secrets, or build junk into the image.
+node_modules
+dist
+*.sqlite
+*.sqlite3
+dev.sqlite
+.env
+.env.*
+.git
+.gitignore
+__pycache__
+**/__pycache__
+*.pyc
+.venv
+venv
+*.log
+tests
+docs
+.devcontainer
+.render.yaml
+Dockerfile.render
+.DS_Store
