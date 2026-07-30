@@ -5,12 +5,81 @@ into EVENTS (OWNERSHIP_CHANGED / DIRECTOR_CHANGED / UBO_CHANGED /
 ADDRESS_CHANGED) so the rules engine reacts, risk is recomputed, and the
 consultant is notified — the document's continuous-compliance philosophy.
 """
+import re
+from difflib import SequenceMatcher
+
 from api.models import (
     db, Person, LegalEntity, Trust, Party, Address, OwnershipRelationship,
-    utcnow,
+    Customer, utcnow,
 )
 from api.engine import audit, ownership
 from api.engine.events import emit_event
+
+
+# --------------------------------------------------------------------------- #
+# Identity resolution — the same economic actor should be ONE Party, reused
+# wherever it appears, so the ownership graph links entities automatically and
+# a known party's KYC data is reused instead of re-collected.
+# --------------------------------------------------------------------------- #
+def _norm(s):
+    return re.sub(r"[^a-z0-9 ]+", " ", (s or "").lower()).strip()
+
+
+def _name_ratio(a, b):
+    return SequenceMatcher(None, _norm(a), _norm(b)).ratio()
+
+
+def find_party_candidates(organization_id, *, name, kind="PERSON", dob=None,
+                          nationality=None, registration_number=None,
+                          exclude_ids=None, limit=6, min_score=0.72):
+    """Existing parties in the org that likely represent the SAME actor as the
+    proposed one. Suggest-and-confirm: this only proposes; a human links.
+
+    Fuzzy name match, strengthened by hard signals (matching registration number
+    for entities, date of birth for persons). O(n) over the org's parties — fine
+    at demo scale; a normalized-name index is the production refinement."""
+    exclude = set(exclude_ids or [])
+    reg = (registration_number or "").strip().lower()
+    nat = (nationality or "").strip().lower()
+    dob10 = str(dob)[:10] if dob else None
+    out = []
+    q = Party.query.filter_by(organization_id=organization_id)
+    if kind:
+        q = q.filter_by(kind=kind)          # a person never matches a company
+    for p in q.all():
+        if p.id in exclude:
+            continue
+        score = _name_ratio(name, p.name)
+        if reg and p.registration_number and reg == p.registration_number.strip().lower():
+            score = max(score, 0.98)        # same registry number = strong
+        if dob10 and p.date_of_birth and dob10 == p.date_of_birth.isoformat()[:10]:
+            score = min(1.0, score + 0.15)
+        if nat and p.nationality and nat == p.nationality.strip().lower():
+            score = min(1.0, score + 0.05)
+        if score >= min_score:
+            out.append((p, int(round(score * 100))))
+    out.sort(key=lambda x: -x[1])
+    return out[:limit]
+
+
+def party_links(party):
+    """Where this party already appears — for the candidate suggestion and the
+    (future) actor profile. Entities it owns/controls + customers it is the
+    subject of."""
+    links = []
+    cust = Customer.query.filter_by(root_party_id=party.id).first()
+    if cust:
+        links.append({"kind": "SUBJECT", "customer_id": cust.id,
+                      "name": cust.name, "relationship": "customer"})
+    edges = (OwnershipRelationship.query
+             .filter_by(owner_party_id=party.id, active=True).all())
+    for e in edges:
+        owned = Party.query.get(e.owned_party_id)
+        links.append({"kind": "OWNS", "name": owned.name if owned else "—",
+                      "relationship": e.relationship_type,
+                      "percentage": e.percentage,
+                      "owned_party_id": e.owned_party_id})
+    return links
 
 
 def _party_class(kind):
@@ -45,27 +114,35 @@ def _ubo_snapshot(customer):
     return {u["party"]["name"] for u in ownership.compute_ubos(customer) if u["is_ubo"]}
 
 
-def add_related_party(customer, *, owner_name, owner_kind="PERSON",
+def add_related_party(customer, *, owner_name=None, owner_kind="PERSON",
                       relationship_type="SHAREHOLDER", percentage=0.0,
                       control_type=None, country=None, nationality=None,
-                      owned_party_id=None, actor=None):
-    """Create a party + relationship edge and emit the right change events.
+                      owned_party_id=None, link_party_id=None, actor=None):
+    """Add an owner/director edge and emit the right change events.
 
-    Returns (owner_party, edge, emitted_event_types).
+    If `link_party_id` is given, the edge REUSES that existing party (identity
+    resolution: the same actor is one shared record, so its KYC data is reused
+    everywhere). Otherwise a new party is created. Returns (owner, edge, events).
     """
     root = ensure_root_party(customer)
     ubos_before = _ubo_snapshot(customer)
 
-    cls = _party_class(owner_kind)
-    owner = cls(
-        organization_id=customer.organization_id,
-        name=owner_name,
-        nationality=nationality,
-        country_of_residence=country if cls is Person else None,
-        country_of_incorporation=country if cls is LegalEntity else None,
-    )
-    db.session.add(owner)
-    db.session.flush()
+    if link_party_id:
+        owner = Party.query.get(link_party_id)
+        if owner is None or owner.organization_id != customer.organization_id:
+            raise ValueError("Linked party not found in this organisation")
+        owner_name = owner.name          # for the audit/event narrative
+    else:
+        cls = _party_class(owner_kind)
+        owner = cls(
+            organization_id=customer.organization_id,
+            name=owner_name,
+            nationality=nationality,
+            country_of_residence=country if cls is Person else None,
+            country_of_incorporation=country if cls is LegalEntity else None,
+        )
+        db.session.add(owner)
+        db.session.flush()
 
     edge = OwnershipRelationship(
         organization_id=customer.organization_id,

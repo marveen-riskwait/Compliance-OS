@@ -92,6 +92,7 @@ export const Customer360 = () => {
   const [error, setError] = useState(null);
   const [screening, setScreening] = useState(false);
   const [ownerForm, setOwnerForm] = useState({ owner_name: "", owner_kind: "PERSON", relationship_type: "SHAREHOLDER", percentage: "", country: "" });
+  const [ownerCands, setOwnerCands] = useState([]);   // existing actors that match the typed name
   const [addrForm, setAddrForm] = useState({ number: "", street: "", city: "", postal_code: "", country: "" });
   const [fieldForm, setFieldForm] = useState({ field_key: "", value: "", source: "manual" });
   const [kyb, setKyb] = useState(null);
@@ -222,6 +223,33 @@ export const Customer360 = () => {
     try {
       await api.addOwnership(id, { ...ownerForm, percentage: Number(ownerForm.percentage) || 0 });
       setOwnerForm({ owner_name: "", owner_kind: "PERSON", relationship_type: "SHAREHOLDER", percentage: "", country: "" });
+      setOwnerCands([]);
+      await load(); loadKyb();
+    } catch (err) { setError(err.message); }
+  };
+
+  // Identity resolution: as the owner name is typed, look up existing actors so
+  // the analyst can LINK to a known party (reusing its KYC) instead of duplicating.
+  useEffect(() => {
+    const n = (ownerForm.owner_name || "").trim();
+    if (n.length < 3 || !can(store.user, "kyb.view")) { setOwnerCands([]); return; }
+    const t = setTimeout(() => {
+      api.partyCandidates(id, n, ownerForm.owner_kind)
+        .then(setOwnerCands).catch(() => setOwnerCands([]));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [ownerForm.owner_name, ownerForm.owner_kind, id]);   // eslint-disable-line
+
+  const linkOwner = async (partyId) => {
+    setError(null);
+    try {
+      await api.addOwnership(id, {
+        link_party_id: partyId,
+        relationship_type: ownerForm.relationship_type,
+        percentage: Number(ownerForm.percentage) || 0,
+      });
+      setOwnerForm({ owner_name: "", owner_kind: "PERSON", relationship_type: "SHAREHOLDER", percentage: "", country: "" });
+      setOwnerCands([]);
       await load(); loadKyb();
     } catch (err) { setError(err.message); }
   };
@@ -630,6 +658,7 @@ export const Customer360 = () => {
         </div>
       )}
       {can(store.user, "kyb.edit") && (
+        <>
         <form onSubmit={submitOwner} className="row g-1 align-items-end" style={{ marginTop: ".75rem", borderTop: "1px solid var(--co-border)", paddingTop: ".6rem" }}>
           <div className="col-12 col-md-3">
             <input className="form-control form-control-sm" placeholder="Name" required
@@ -664,6 +693,36 @@ export const Customer360 = () => {
             <button className="btn btn-sm btn-co w-100">Add</button>
           </div>
         </form>
+        {ownerCands.length > 0 && (
+          <div className="party-cands">
+            <div className="party-cands-title">
+              <i className="fa-solid fa-link" /> Existing actor? Link to reuse its KYC — no need to re-enter
+            </div>
+            {ownerCands.map((c) => (
+              <div className="party-cand" key={c.id}>
+                <div className="grow">
+                  <div className="title">
+                    {c.name}
+                    <span className="chip INFO" style={{ marginLeft: 6, fontSize: ".62rem" }}>{c.match_score}%</span>
+                    {c.is_pep && <span className="chip HIGH" style={{ marginLeft: 4, fontSize: ".62rem" }}>PEP</span>}
+                  </div>
+                  <div className="meta">
+                    {c.nationality || c.country_of_incorporation || c.country_of_residence || "—"}
+                    {c.appears_in?.length > 0 && (
+                      <> · appears in {c.appears_in.map((a) => a.name).slice(0, 3).join(", ")}
+                        {c.appears_in.length > 3 ? ` +${c.appears_in.length - 3}` : ""}</>
+                    )}
+                  </div>
+                </div>
+                <button type="button" className="btn btn-sm btn-outline-primary"
+                  onClick={() => linkOwner(c.id)}>
+                  <i className="fa-solid fa-link" /> Link
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        </>
       )}
     </div>
   );

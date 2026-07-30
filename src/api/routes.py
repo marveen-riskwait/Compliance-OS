@@ -836,27 +836,54 @@ def customer_ownership(user, cid):
 def add_ownership(user, cid):
     customer = _get_customer_for(user, cid)
     body = request.get_json(silent=True) or {}
+    link_party_id = body.get("link_party_id")   # reuse an existing actor
     owner_name = (body.get("owner_name") or "").strip()
-    if not owner_name:
+    if not owner_name and not link_party_id:
         raise APIException("owner_name is required", status_code=400)
     kind = body.get("owner_kind", "PERSON")
     if kind not in PARTY_KINDS:
         kind = "PERSON"
 
-    owner, edge, emitted = party_service.add_related_party(
-        customer,
-        owner_name=owner_name,
-        owner_kind=kind,
-        relationship_type=body.get("relationship_type", "SHAREHOLDER"),
-        percentage=body.get("percentage") or 0,
-        control_type=body.get("control_type"),
-        country=body.get("country"),
-        nationality=body.get("nationality"),
-        owned_party_id=body.get("owned_party_id"),
-        actor=user,
-    )
+    try:
+        owner, edge, emitted = party_service.add_related_party(
+            customer,
+            owner_name=owner_name or None,
+            owner_kind=kind,
+            relationship_type=body.get("relationship_type", "SHAREHOLDER"),
+            percentage=body.get("percentage") or 0,
+            control_type=body.get("control_type"),
+            country=body.get("country"),
+            nationality=body.get("nationality"),
+            owned_party_id=body.get("owned_party_id"),
+            link_party_id=link_party_id,
+            actor=user,
+        )
+    except ValueError as exc:
+        raise APIException(str(exc), status_code=400)
     return jsonify({"owner": owner.serialize(), "edge": edge.serialize(),
-                    "events": emitted}), 201
+                    "events": emitted, "linked": bool(link_party_id)}), 201
+
+
+@api.route("/customers/<int:cid>/party-candidates", methods=["GET"])
+@permission_required("kyb.view")
+def party_candidates(user, cid):
+    """Existing actors that look like the one being added — so the analyst can
+    LINK to a known party (reusing its KYC) instead of creating a duplicate."""
+    _get_customer_for(user, cid)   # scope check
+    name = (request.args.get("name") or "").strip()
+    kind = request.args.get("kind", "PERSON")
+    if len(name) < 2:
+        return jsonify([]), 200
+    customer = Customer.query.get(cid)
+    exclude = [customer.root_party_id] if customer and customer.root_party_id else []
+    cands = party_service.find_party_candidates(
+        user.organization_id, name=name, kind=kind,
+        nationality=request.args.get("nationality"),
+        registration_number=request.args.get("registration_number"),
+        exclude_ids=exclude)
+    return jsonify([{**p.serialize(), "match_score": score,
+                     "appears_in": party_service.party_links(p)}
+                    for p, score in cands]), 200
 
 
 @api.route("/customers/<int:cid>/ownership/<int:edge_id>", methods=["DELETE"])
