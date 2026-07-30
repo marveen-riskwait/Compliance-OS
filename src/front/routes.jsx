@@ -9,6 +9,7 @@ import { Login } from "./pages/Login";
 import { Workspace } from "./pages/Workspace";
 import { Customers } from "./pages/Customers";
 import { Customer360 } from "./pages/Customer360";
+import { PartyProfile } from "./pages/PartyProfile";
 import { CaseDetail } from "./pages/CaseDetail";
 import { Administration } from "./pages/Administration";
 import { Management } from "./pages/Management";
@@ -44,6 +45,7 @@ export const router = createBrowserRouter(
       <Route path="/chat" element={<Chat />} />
       <Route path="/customers" element={<Customers />} />
       <Route path="/customers/:id" element={<Customer360 />} />
+      <Route path="/parties/:id" element={<PartyProfile />} />
       <Route path="/customers/:id/kyc-form" element={<KycForm />} />
       <Route path="/alerts" element={<Alerts />} />
       <Route path="/regulatory" element={<Regulatory />} />

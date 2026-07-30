@@ -144,6 +144,8 @@ export const api = {
   addOwnership: (id, payload) => request(`/customers/${id}/ownership`, { method: "POST", body: payload }),
   partyCandidates: (id, name, kind) =>
     request(`/customers/${id}/party-candidates?name=${encodeURIComponent(name)}&kind=${kind}`),
+  customerRelations: (id) => request(`/customers/${id}/relations`),
+  partyProfile: (pid) => request(`/parties/${pid}/profile`),
   removeOwnership: (id, edgeId) => request(`/customers/${id}/ownership/${edgeId}`, { method: "DELETE" }),
   removeField: (id, fid) => request(`/customers/${id}/fields/${fid}`, { method: "DELETE" }),
   transactions: (id, flaggedOnly) => request(`/customers/${id}/transactions${flaggedOnly ? "?flagged=true" : ""}`),

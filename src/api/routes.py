@@ -864,6 +864,25 @@ def add_ownership(user, cid):
                     "events": emitted, "linked": bool(link_party_id)}), 201
 
 
+@api.route("/customers/<int:cid>/relations", methods=["GET"])
+@permission_required("customer.view")
+def customer_relations(user, cid):
+    """Other customers connected to this one through a shared economic actor."""
+    customer = _get_customer_for(user, cid)
+    return jsonify(party_service.customer_relations(customer)), 200
+
+
+@api.route("/parties/<int:pid>/profile", methods=["GET"])
+@permission_required("kyb.view")
+def party_profile(user, pid):
+    """One actor across the whole book — every entity it is linked to."""
+    from api.models import Party
+    party = Party.query.get(pid)
+    if party is None or party.organization_id != user.organization_id:
+        raise APIException("Party not found", status_code=404)
+    return jsonify(party_service.actor_profile(party)), 200
+
+
 @api.route("/customers/<int:cid>/party-candidates", methods=["GET"])
 @permission_required("kyb.view")
 def party_candidates(user, cid):

@@ -38,6 +38,7 @@ const MATCH_SEV = {
 const TABS = [
   { key: "overview", label: "Overview", icon: "fa-gauge-high" },
   { key: "kyc", label: "KYC & Documents", icon: "fa-id-card" },
+  { key: "relations", label: "Relations", icon: "fa-sitemap" },
   { key: "screening", label: "Screening", icon: "fa-magnifying-glass" },
   { key: "transactions", label: "Transactions", icon: "fa-right-left" },
   { key: "activity", label: "Cases & Activity", icon: "fa-diagram-project" },
@@ -55,7 +56,7 @@ const OwnershipTree = ({ nodeId, nodes, edges, factor = 1, depth = 0, onRemove }
     <div style={{ marginLeft: depth ? 16 : 0, paddingLeft: depth ? 10 : 0, borderLeft: depth ? "2px solid var(--co-border)" : "none" }}>
       <div style={{ padding: ".2rem 0" }}>
         <i className={`fa-solid ${node.kind === "PERSON" ? "fa-user" : "fa-building"}`} style={{ color: "var(--co-muted)", marginRight: 6 }} />
-        <b>{node.name}</b>
+        <Link to={`/parties/${node.id}`} style={{ fontWeight: 700 }}>{node.name}</Link>
         {node.kind === "ORGANIZATION" && node.country_of_incorporation ? (
           <span className="muted" style={{ fontSize: ".8rem" }}> · {node.country_of_incorporation}</span>
         ) : null}
@@ -93,6 +94,7 @@ export const Customer360 = () => {
   const [screening, setScreening] = useState(false);
   const [ownerForm, setOwnerForm] = useState({ owner_name: "", owner_kind: "PERSON", relationship_type: "SHAREHOLDER", percentage: "", country: "" });
   const [ownerCands, setOwnerCands] = useState([]);   // existing actors that match the typed name
+  const [relations, setRelations] = useState(null);    // cross-entity relations (Relations tab)
   const [addrForm, setAddrForm] = useState({ number: "", street: "", city: "", postal_code: "", country: "" });
   const [fieldForm, setFieldForm] = useState({ field_key: "", value: "", source: "manual" });
   const [kyb, setKyb] = useState(null);
@@ -239,6 +241,14 @@ export const Customer360 = () => {
     }, 350);
     return () => clearTimeout(t);
   }, [ownerForm.owner_name, ownerForm.owner_kind, id]);   // eslint-disable-line
+
+  // Load the cross-entity relations lazily when the Relations tab is opened.
+  useEffect(() => {
+    if (tab === "relations") {
+      api.customerRelations(id).then(setRelations)
+        .catch(() => setRelations({ connections: [], actors: [] }));
+    }
+  }, [tab, id]);
 
   const linkOwner = async (partyId) => {
     setError(null);
@@ -618,7 +628,7 @@ export const Customer360 = () => {
             <div className="work-row" key={u.party.id}>
               <span className={`dotsev ${u.is_ubo ? "HIGH" : "INFO"}`} />
               <div className="grow">
-                <div className="title">{u.party.name}</div>
+                <div className="title"><Link to={`/parties/${u.party.id}`}>{u.party.name}</Link></div>
                 <div className="meta">
                   {u.party.nationality || "—"}
                   {u.roles && u.roles.length > 0
@@ -724,6 +734,41 @@ export const Customer360 = () => {
         )}
         </>
       )}
+    </div>
+  );
+
+  const relationsCard = (
+    <div className="co-card">
+      <div className="section-title">Connected entities &amp; common interests</div>
+      <p className="muted" style={{ fontSize: ".82rem", marginTop: 0 }}>
+        Other files that share an economic actor with this one — found automatically
+        from shared owners. No manual cross-checking.
+      </p>
+      {relations === null && <div className="muted" style={{ fontSize: ".88rem" }}>Loading relations…</div>}
+      {relations && relations.connections.length === 0 && (
+        <div className="muted" style={{ fontSize: ".88rem" }}>
+          No shared actors with other files yet. A link appears here the moment an
+          owner of this customer also appears in another customer.
+        </div>
+      )}
+      {relations && relations.connections.map((c) => (
+        <div className="work-row" key={c.customer_id}>
+          <span className="dotsev HIGH" />
+          <div className="grow">
+            <div className="title"><Link to={`/customers/${c.customer_id}`}>{c.name}</Link></div>
+            <div className="meta">
+              shared owner{c.via.length > 1 ? "s" : ""}:{" "}
+              {c.via.map((v, i) => (
+                <span key={v.party_id}>
+                  {i > 0 ? ", " : ""}
+                  <Link to={`/parties/${v.party_id}`}>{v.name}</Link>
+                </span>
+              ))}
+            </div>
+          </div>
+          <Link to={`/customers/${c.customer_id}`} className="btn btn-sm btn-outline-secondary">Open file</Link>
+        </div>
+      ))}
     </div>
   );
 
@@ -1067,11 +1112,19 @@ export const Customer360 = () => {
             <div className="row g-3 mt-0"><div className="col-12">{companyRegistryCard}</div></div>
           )}
           <div className="row g-3 mt-0">
-            <div className="col-12">{ownershipCard}</div>
-          </div>
-          <div className="row g-3 mt-0">
             <div className="col-md-6">{addressesCard}</div>
             <div className="col-md-6">{kycDataCard}</div>
+          </div>
+        </>
+      )}
+
+      {tab === "relations" && (
+        <>
+          <div className="row g-3">
+            <div className="col-12">{relationsCard}</div>
+          </div>
+          <div className="row g-3 mt-0">
+            <div className="col-12">{ownershipCard}</div>
           </div>
         </>
       )}

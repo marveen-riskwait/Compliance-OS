@@ -64,8 +64,9 @@ def find_party_candidates(organization_id, *, name, kind="PERSON", dob=None,
 
 def party_links(party):
     """Where this party already appears — for the candidate suggestion and the
-    (future) actor profile. Entities it owns/controls + customers it is the
-    subject of."""
+    actor profile. Entities it owns/controls + customers it is the subject of.
+    Each OWNS link is resolved to a customer_id when the owned entity is one of
+    our customers, so the UI can navigate to that file."""
     links = []
     cust = Customer.query.filter_by(root_party_id=party.id).first()
     if cust:
@@ -75,11 +76,61 @@ def party_links(party):
              .filter_by(owner_party_id=party.id, active=True).all())
     for e in edges:
         owned = Party.query.get(e.owned_party_id)
+        owned_cust = Customer.query.filter_by(root_party_id=e.owned_party_id).first()
         links.append({"kind": "OWNS", "name": owned.name if owned else "—",
                       "relationship": e.relationship_type,
                       "percentage": e.percentage,
-                      "owned_party_id": e.owned_party_id})
+                      "owned_party_id": e.owned_party_id,
+                      "customer_id": owned_cust.id if owned_cust else None})
     return links
+
+
+def actor_profile(party):
+    """Everything about one economic actor across the whole book: its identity,
+    every entity it owns/controls (with links to those customers), the customer
+    it is the subject of, and who owns it in turn."""
+    data = party.serialize()
+    data["appears_in"] = party_links(party)
+    owned_by = []
+    for e in (OwnershipRelationship.query
+              .filter_by(owned_party_id=party.id, active=True).all()):
+        owner = Party.query.get(e.owner_party_id)
+        owned_by.append({"party_id": e.owner_party_id,
+                         "name": owner.name if owner else "—",
+                         "relationship": e.relationship_type,
+                         "percentage": e.percentage})
+    data["owned_by"] = owned_by
+    return data
+
+
+def customer_relations(customer):
+    """The customer's links to the rest of the book: OTHER customers that share
+    an economic actor with it, and the bridging actors themselves. This is the
+    'common interests between companies' view — computed automatically from the
+    shared parties, no manual cross-checking."""
+    graph = ownership.build_graph(customer) or {}
+    owner_ids = {e["owner_party_id"] for e in graph.get("edges", [])}
+    if customer.root_party_id:
+        owner_ids.add(customer.root_party_id)   # the subject can own elsewhere too
+    connections = {}
+    actors = []
+    for pid in owner_ids:
+        p = Party.query.get(pid)
+        if p is None:
+            continue
+        other = [l for l in party_links(p)
+                 if l["kind"] == "OWNS" and l.get("customer_id")
+                 and l["customer_id"] != customer.id]
+        if not other:
+            continue
+        actors.append({"party": p.serialize(), "connects_to": other})
+        for l in other:
+            c = connections.setdefault(l["customer_id"],
+                                       {"customer_id": l["customer_id"],
+                                        "name": l["name"], "via": []})
+            if p.id not in [v["party_id"] for v in c["via"]]:
+                c["via"].append({"party_id": p.id, "name": p.name})
+    return {"connections": list(connections.values()), "actors": actors}
 
 
 def _party_class(kind):

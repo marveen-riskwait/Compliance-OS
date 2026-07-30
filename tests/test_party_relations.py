@@ -64,3 +64,41 @@ def test_no_candidate_for_unknown_name(client, tokens):
     cands = client.get(f"/api/customers/{a}/party-candidates?name=Zephyr%20Nobody&kind=PERSON",
                        headers=auth(tok)).get_json()
     assert cands == []
+
+
+# --- Phase B: relations network + actor profile ---------------------------
+def test_relations_and_actor_profile(client, tokens):
+    tok = tokens["officer@test.io"]
+    a = _company(client, tok, "Nord Capital SA")
+    r = client.post(f"/api/customers/{a}/ownership", headers=auth(tok),
+                    json={"owner_name": "Erik Holm", "owner_kind": "PERSON",
+                          "relationship_type": "UBO", "percentage": 55})
+    erik = r.get_json()["owner"]["id"]
+    b = _company(client, tok, "Sud Ventures SA")
+    client.post(f"/api/customers/{b}/ownership", headers=auth(tok),
+                json={"link_party_id": erik, "relationship_type": "UBO", "percentage": 50})
+
+    # A is now connected to B (and vice versa) through the shared actor Erik.
+    rel_a = client.get(f"/api/customers/{a}/relations", headers=auth(tok)).get_json()
+    conn = {c["customer_id"]: c for c in rel_a["connections"]}
+    assert b in conn
+    assert any(v["party_id"] == erik for v in conn[b]["via"])
+
+    rel_b = client.get(f"/api/customers/{b}/relations", headers=auth(tok)).get_json()
+    assert any(c["customer_id"] == a for c in rel_b["connections"])
+
+    # The actor profile lists every entity Erik is linked to, both in our book.
+    prof = client.get(f"/api/parties/{erik}/profile", headers=auth(tok)).get_json()
+    owns = [l for l in prof["appears_in"] if l["kind"] == "OWNS"]
+    linked_customers = {l["customer_id"] for l in owns if l.get("customer_id")}
+    assert {a, b} <= linked_customers
+
+
+def test_relations_empty_when_no_shared_actor(client, tokens):
+    tok = tokens["officer@test.io"]
+    a = _company(client, tok, "Lonely Holdings")
+    client.post(f"/api/customers/{a}/ownership", headers=auth(tok),
+                json={"owner_name": "Nobody Special", "owner_kind": "PERSON",
+                      "relationship_type": "UBO", "percentage": 100})
+    rel = client.get(f"/api/customers/{a}/relations", headers=auth(tok)).get_json()
+    assert rel["connections"] == []
