@@ -95,6 +95,7 @@ export const Customer360 = () => {
   const [ownerForm, setOwnerForm] = useState({ owner_name: "", owner_kind: "PERSON", relationship_type: "SHAREHOLDER", percentage: "", country: "" });
   const [ownerCands, setOwnerCands] = useState([]);   // existing actors that match the typed name
   const [relations, setRelations] = useState(null);    // cross-entity relations (Relations tab)
+  const [groupRisk, setGroupRisk] = useState(null);    // aggregated risk across the economic group
   const [addrForm, setAddrForm] = useState({ number: "", street: "", city: "", postal_code: "", country: "" });
   const [fieldForm, setFieldForm] = useState({ field_key: "", value: "", source: "manual" });
   const [kyb, setKyb] = useState(null);
@@ -242,11 +243,12 @@ export const Customer360 = () => {
     return () => clearTimeout(t);
   }, [ownerForm.owner_name, ownerForm.owner_kind, id]);   // eslint-disable-line
 
-  // Load the cross-entity relations lazily when the Relations tab is opened.
+  // Load the cross-entity relations + group risk lazily when the tab is opened.
   useEffect(() => {
     if (tab === "relations") {
       api.customerRelations(id).then(setRelations)
         .catch(() => setRelations({ connections: [], actors: [] }));
+      api.groupRisk(id).then(setGroupRisk).catch(() => setGroupRisk(null));
     }
   }, [tab, id]);
 
@@ -737,6 +739,102 @@ export const Customer360 = () => {
     </div>
   );
 
+  const groupRiskCard = (
+    <div className="co-card">
+      <div className="section-title grp-head">
+        <span>Group risk</span>
+        {groupRisk && groupRisk.group_size > 1 && (
+          <span className={`chip ${groupRisk.peak_level}`}>{groupRisk.peak_level} peak</span>
+        )}
+      </div>
+
+      {groupRisk === null && <div className="muted" style={{ fontSize: ".88rem" }}>Loading group…</div>}
+
+      {groupRisk && groupRisk.group_size <= 1 && (
+        <div className="muted" style={{ fontSize: ".88rem" }}>
+          This file is not part of a wider economic group yet. As soon as it shares
+          an owner, director or parent with another customer, the group's aggregated
+          risk appears here.
+        </div>
+      )}
+
+      {groupRisk && groupRisk.group_size > 1 && (
+        <>
+          <p className="muted" style={{ fontSize: ".82rem", marginTop: 0 }}>
+            {groupRisk.group_size} connected entities. A group is only as clean as its
+            riskiest member — this is the aggregated, network view.
+          </p>
+
+          {groupRisk.inherited && (
+            <div className="grp-inherit">
+              <strong>Inherited risk.</strong> This file scores{" "}
+              <span className={`chip ${groupRisk.self_level}`}>{groupRisk.self_level}</span>{" "}
+              on its own, but its group peaks at{" "}
+              <span className={`chip ${groupRisk.peak_level}`}>{groupRisk.peak_level}</span>.
+              {" "}Consider an enhanced review with the network in mind.
+            </div>
+          )}
+
+          <div className="grp-sub">Members</div>
+          {groupRisk.members.map((m) => (
+            <div className="work-row" key={m.customer_id}>
+              <span className={`dotsev ${m.risk_level}`} />
+              <div className="grow">
+                <div className="title">
+                  {m.is_self ? m.name : <Link to={`/customers/${m.customer_id}`}>{m.name}</Link>}
+                  {m.is_self && <span className="muted" style={{ fontWeight: 400 }}> · this file</span>}
+                </div>
+              </div>
+              <span className={`chip ${m.risk_level}`}>{m.risk_level} · {m.risk_score}</span>
+            </div>
+          ))}
+
+          {groupRisk.bridges.length > 0 && (
+            <>
+              <div className="grp-sub">Shared actors linking the group</div>
+              {groupRisk.bridges.map((b) => (
+                <div className="work-row" key={b.party_id}>
+                  <span className={`dotsev ${b.is_pep ? "HIGH" : "INFO"}`} />
+                  <div className="grow">
+                    <div className="title">
+                      <Link to={`/parties/${b.party_id}`}>{b.name}</Link>
+                      {b.is_pep && (
+                        <span className="chip HIGH" style={{ marginLeft: 6 }}>
+                          PEP{b.pep_type ? ` · ${b.pep_type}` : ""}
+                        </span>
+                      )}
+                    </div>
+                    <div className="meta">connects {b.connects.map((c) => c.name).join(", ")}</div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {groupRisk.drivers.length > 0 && (
+            <>
+              <div className="grp-sub">Why the group is elevated</div>
+              {groupRisk.drivers.map((d, i) => (
+                <div className="work-row" key={i}>
+                  <span className={`dotsev ${d.level}`} />
+                  <div className="grow">
+                    <div className="title" style={{ fontWeight: 500 }}>{d.label}</div>
+                    <div className="meta">
+                      {d.source === "bridge"
+                        ? "shared actor"
+                        : <>via <Link to={`/customers/${d.customer_id}`}>{d.name}</Link></>}
+                      {d.impact != null ? ` · +${d.impact}` : ""}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+
   const relationsCard = (
     <div className="co-card">
       <div className="section-title">Connected entities &amp; common interests</div>
@@ -1121,6 +1219,9 @@ export const Customer360 = () => {
       {tab === "relations" && (
         <>
           <div className="row g-3">
+            <div className="col-12">{groupRiskCard}</div>
+          </div>
+          <div className="row g-3 mt-0">
             <div className="col-12">{relationsCard}</div>
           </div>
           <div className="row g-3 mt-0">

@@ -37,7 +37,7 @@ from api.engine import (risk_engine, audit, ownership, data_scope, workload,
                         sla, assignment, party_service, requirement_engine,
                         kyc_service, provider_service, alert_service,
                         review_engine, workflow_engine, regulatory_service,
-                        assistant_service, watchlist_service)
+                        assistant_service, watchlist_service, group_service)
 from api.engine.screening_service import review_match
 from api.tasks import run_screening
 
@@ -870,6 +870,15 @@ def customer_relations(user, cid):
     """Other customers connected to this one through a shared economic actor."""
     customer = _get_customer_for(user, cid)
     return jsonify(party_service.customer_relations(customer)), 200
+
+
+@api.route("/customers/<int:cid>/group-risk", methods=["GET"])
+@permission_required("customer.view")
+def customer_group_risk(user, cid):
+    """Aggregated risk across the economic group this customer belongs to —
+    peak level, members, bridge actors and the drivers behind them."""
+    customer = _get_customer_for(user, cid)
+    return jsonify(group_service.group_risk(customer)), 200
 
 
 @api.route("/parties/<int:pid>/profile", methods=["GET"])

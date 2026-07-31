@@ -145,6 +145,7 @@ export const api = {
   partyCandidates: (id, name, kind) =>
     request(`/customers/${id}/party-candidates?name=${encodeURIComponent(name)}&kind=${kind}`),
   customerRelations: (id) => request(`/customers/${id}/relations`),
+  groupRisk: (id) => request(`/customers/${id}/group-risk`),
   partyProfile: (pid) => request(`/parties/${pid}/profile`),
   removeOwnership: (id, edgeId) => request(`/customers/${id}/ownership/${edgeId}`, { method: "DELETE" }),
   removeField: (id, fid) => request(`/customers/${id}/fields/${fid}`, { method: "DELETE" }),

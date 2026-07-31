@@ -801,3 +801,11 @@ h1, h2, h3, h4, .co-serif {
 .party-cand .grow { flex: 1; min-width: 0; }
 .party-cand .title { font-weight: 600; font-size: .88rem; }
 .party-cand .meta { font-size: .78rem; color: #5a6480; }
+
+/* Group / network risk card (pages/Customer360.jsx, Relations tab). */
+.grp-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.grp-inherit { margin: .3rem 0 .8rem; padding: .55rem .7rem; border-radius: 8px;
+  border: 1px solid var(--co-border); border-left: 3px solid var(--sev-high);
+  background: #fff8f1; font-size: .84rem; line-height: 1.4; }
+.grp-sub { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--co-muted); font-weight: 700; margin: .8rem 0 .3rem; }
