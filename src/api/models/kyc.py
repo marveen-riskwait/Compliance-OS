@@ -75,6 +75,10 @@ class RequirementDefinition(db.Model):
     kind: Mapped[str] = mapped_column(String(20), nullable=False)          # DATA / DOCUMENT
 
     applies_customer_type: Mapped[str] = mapped_column(String(20), default="ANY")  # INDIVIDUAL / COMPANY / ANY
+    # Comma-separated company legal forms this applies to (PRIVATELY_HELD,
+    # PARTNERSHIP, LISTED). NULL/empty = every form of the customer type — so a
+    # listed company, absent from the UBO-heavy rows, gets a lighter (SDD) list.
+    applies_legal_form: Mapped[str] = mapped_column(String(120), nullable=True)
     min_risk_rank: Mapped[int] = mapped_column(Integer, default=0)         # required at this risk and above
     jurisdiction: Mapped[str] = mapped_column(String(80), nullable=True)   # NULL = any
 
@@ -86,6 +90,7 @@ class RequirementDefinition(db.Model):
         return {
             "id": self.id, "code": self.code, "label": self.label,
             "kind": self.kind, "applies_customer_type": self.applies_customer_type,
+            "applies_legal_form": self.applies_legal_form,
             "min_risk_rank": self.min_risk_rank, "jurisdiction": self.jurisdiction,
             "data_field": self.data_field, "doc_type": self.doc_type,
             "active": self.active,

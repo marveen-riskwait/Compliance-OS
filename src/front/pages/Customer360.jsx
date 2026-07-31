@@ -12,6 +12,14 @@ import { MatchDetails } from "../components/MatchDetails";
 
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString() : "—");
 
+// Company legal forms — the sub-type that selects the KYC document checklist.
+const LEGAL_FORMS = [
+  ["PRIVATELY_HELD", "Privately held"],
+  ["PARTNERSHIP", "Partnership"],
+  ["LISTED", "Listed"],
+];
+const LEGAL_FORM_LABELS = Object.fromEntries(LEGAL_FORMS);
+
 // Human labels for the transaction-monitoring detector codes.
 const DETECTOR_LABELS = {
   LARGE_AMOUNT: "Large amount",
@@ -1166,9 +1174,29 @@ export const Customer360 = () => {
         <div>
           <div className="muted" style={{ fontSize: ".8rem" }}><Link to="/customers">← Customers</Link></div>
           <h3 style={{ margin: ".2rem 0" }}>{customer.name}</h3>
-          <div className="muted">
-            {customer.customer_type} · {customer.country || "—"}
-            {customer.business_activity ? ` · ${customer.business_activity}` : ""}
+          <div className="muted d-flex align-items-center flex-wrap gap-2">
+            <span>
+              {customer.customer_type}
+              {customer.legal_form ? ` · ${LEGAL_FORM_LABELS[customer.legal_form] || customer.legal_form}` : ""}
+              {" · "}{customer.country || "—"}
+              {customer.business_activity ? ` · ${customer.business_activity}` : ""}
+            </span>
+            {customer.sdd && (
+              <span className="chip INFO" title="Listed on a regulated market with free float — simplified due diligence applies">
+                Simplified DD
+              </span>
+            )}
+            {customer.customer_type === "COMPANY" && can(store.user, "customer.update") && (
+              <select className="form-select form-select-sm" style={{ width: "auto", fontSize: ".78rem" }}
+                value={customer.legal_form || ""}
+                onChange={async (e) => {
+                  try { await api.setCustomerLegalForm(id, e.target.value || null); await load(); }
+                  catch (err) { setError(err.message); }
+                }}>
+                <option value="">— classify legal form —</option>
+                {LEGAL_FORMS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            )}
           </div>
         </div>
         <div className="d-flex gap-2 flex-wrap">

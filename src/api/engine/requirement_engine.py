@@ -31,6 +31,13 @@ def applicable_definitions(customer):
     for d in defs:
         if d.applies_customer_type != "ANY" and d.applies_customer_type != customer.customer_type:
             continue
+        # Scoped to specific company legal forms? Skip unless the customer's form
+        # is one of them. A NULL/empty scope applies to every form of the type —
+        # so a listed company, absent from the UBO-heavy rows, gets a lighter list.
+        if d.applies_legal_form:
+            forms = {s.strip() for s in d.applies_legal_form.split(",") if s.strip()}
+            if (customer.legal_form or "") not in forms:
+                continue
         if rank < (d.min_risk_rank or 0):
             continue
         if d.jurisdiction and d.jurisdiction != (customer.country or ""):

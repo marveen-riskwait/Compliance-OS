@@ -8,9 +8,16 @@ import { RowMenu } from "../components/RowMenu";
 import { NameSuggest } from "../components/NameSuggest";
 
 const EMPTY_FORM = {
-  name: "", customer_type: "INDIVIDUAL", country: "",
+  name: "", customer_type: "INDIVIDUAL", legal_form: "", country: "",
   business_activity: "", complex_ownership: false,
 };
+
+// Company legal forms — the sub-type drives the KYC document checklist.
+const LEGAL_FORM_OPTIONS = [
+  ["PRIVATELY_HELD", "Privately held company"],
+  ["PARTNERSHIP", "Partnership"],
+  ["LISTED", "Listed company (simplified DD)"],
+];
 
 export const Customers = () => {
   const { store } = useGlobalReducer();
@@ -97,12 +104,23 @@ export const Customers = () => {
             <div className="col-md-3">
               <label className="form-label">Type</label>
               <select className="form-select" value={form.customer_type}
-                onChange={(e) => setForm({ ...form, customer_type: e.target.value })}>
+                onChange={(e) => setForm({ ...form, customer_type: e.target.value,
+                  legal_form: e.target.value === "COMPANY" ? form.legal_form : "" })}>
                 <option value="INDIVIDUAL">Individual</option>
                 <option value="COMPANY">Company</option>
                 <option value="TRUST">Trust / legal arrangement</option>
               </select>
             </div>
+            {form.customer_type === "COMPANY" && (
+              <div className="col-md-3">
+                <label className="form-label">Legal form</label>
+                <select className="form-select" value={form.legal_form}
+                  onChange={(e) => setForm({ ...form, legal_form: e.target.value })}>
+                  <option value="">— not classified —</option>
+                  {LEGAL_FORM_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </div>
+            )}
             <div className="col-md-3">
               <label className="form-label">Country</label>
               <input className="form-control" value={form.country}

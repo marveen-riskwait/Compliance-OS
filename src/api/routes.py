@@ -26,7 +26,7 @@ from api.models import (
     RegulatorySource, RegulatoryRequirement, RegulatoryChange,
     Conversation, Message,
     ChatRoom, ChatMember, ChatMessage,
-    utcnow, ROLES, CUSTOMER_TYPES, PARTY_KINDS, PERMISSION_CATALOG,
+    utcnow, ROLES, CUSTOMER_TYPES, COMPANY_LEGAL_FORMS, PARTY_KINDS, PERMISSION_CATALOG,
 )
 from api.utils import APIException
 from api.auth import (
@@ -574,10 +574,16 @@ def create_customer(user):
     ctype = body.get("customer_type", "INDIVIDUAL")
     if ctype not in CUSTOMER_TYPES:
         ctype = "INDIVIDUAL"
+    # Legal form only applies to companies and must be a known one; it selects
+    # the applicable document checklist (and SDD for a listed company).
+    legal_form = body.get("legal_form")
+    if ctype != "COMPANY" or legal_form not in COMPANY_LEGAL_FORMS:
+        legal_form = None
 
     customer = Customer(
         organization_id=user.organization_id,
         customer_type=ctype,
+        legal_form=legal_form,
         name=name,
         country=body.get("country"),
         business_activity=body.get("business_activity"),
@@ -604,6 +610,26 @@ def create_customer(user):
         from api.tasks import run_enrichment
         _dispatch(run_enrichment, customer.id, user.id)
     return jsonify(customer.serialize()), 201
+
+
+@api.route("/customers/<int:cid>/legal-form", methods=["PATCH"])
+@permission_required("customer.update")
+def set_customer_legal_form(user, cid):
+    """Classify a company by legal form (privately-held / partnership / listed).
+    The document checklist depends on it, so it is recomputed immediately —
+    a listed company drops to the simplified-due-diligence list."""
+    customer = _get_customer_for(user, cid)
+    if customer.customer_type != "COMPANY":
+        raise APIException("Legal form applies to companies only", status_code=400)
+    lf = (request.get_json(silent=True) or {}).get("legal_form") or None
+    if lf is not None and lf not in COMPANY_LEGAL_FORMS:
+        raise APIException("Unknown legal form", status_code=400)
+    old, customer.legal_form = customer.legal_form, lf
+    audit.record("CUSTOMER_LEGAL_FORM_SET", "customer", customer.id, actor=user,
+                 old_value=old, new_value=lf, reason="Classification")
+    db.session.commit()
+    requirement_engine.evaluate(customer)     # checklist follows the legal form
+    return jsonify(customer.serialize()), 200
 
 
 @api.route("/customers/<int:cid>", methods=["GET"])

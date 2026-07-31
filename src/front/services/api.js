@@ -117,6 +117,7 @@ export const api = {
   customers: (archived) => request(`/customers${archived ? "?archived=1" : ""}`),
   nameSuggestions: (q) => request(`/name-suggestions?q=${encodeURIComponent(q)}`),
   createCustomer: (payload) => request("/customers", { method: "POST", body: payload }),
+  setCustomerLegalForm: (id, legal_form) => request(`/customers/${id}/legal-form`, { method: "PATCH", body: { legal_form } }),
   customer: (id) => request(`/customers/${id}`),
   screen: (id) => request(`/customers/${id}/screen`, { method: "POST" }),
   addDocument: (id, payload) => request(`/customers/${id}/documents`, { method: "POST", body: payload }),

@@ -12,6 +12,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from api.models.base import db, utcnow
 
 CUSTOMER_TYPES = ("INDIVIDUAL", "COMPANY", "TRUST")
+# Legal form / sub-type — only meaningful for COMPANY today. It drives WHICH KYC
+# document checklist applies (privately-held vs partnership vs listed). A listed
+# company on a regulated market with sufficient free float qualifies for
+# Simplified Due Diligence: a lighter checklist, by design not omission.
+COMPANY_LEGAL_FORMS = ("PRIVATELY_HELD", "PARTNERSHIP", "LISTED")
+SDD_LEGAL_FORMS = ("LISTED",)
 RISK_LEVELS = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
 
 HIGH_RISK_COUNTRIES = {"Iran", "North Korea", "Syria", "Myanmar", "Russia", "Panama"}
@@ -26,6 +32,9 @@ class Customer(db.Model):
     organization: Mapped["Organization"] = relationship(back_populates="customers")
 
     customer_type: Mapped[str] = mapped_column(String(20), nullable=False, default="INDIVIDUAL")
+    # Sub-type for companies (PRIVATELY_HELD / PARTNERSHIP / LISTED); NULL for
+    # individuals and trusts. Selects the applicable document checklist.
+    legal_form: Mapped[str] = mapped_column(String(30), nullable=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     country: Mapped[str] = mapped_column(String(80), nullable=True)
     business_activity: Mapped[str] = mapped_column(String(200), nullable=True)
@@ -72,10 +81,17 @@ class Customer(db.Model):
     cases: Mapped[list["Case"]] = relationship(back_populates="customer")
     assessments: Mapped[list["RiskAssessment"]] = relationship(back_populates="customer")
 
+    @property
+    def sdd(self):
+        """Simplified Due Diligence — a listed company gets a lighter checklist."""
+        return self.legal_form in SDD_LEGAL_FORMS
+
     def serialize(self):
         return {
             "id": self.id,
             "customer_type": self.customer_type,
+            "legal_form": self.legal_form,
+            "sdd": self.sdd,
             "name": self.name,
             "country": self.country,
             "business_activity": self.business_activity,

@@ -288,39 +288,56 @@ def _seed_org_structure(org):
 
 # System-level requirement definitions (organization_id = NULL).
 # min_risk_rank: 0=always, 2=HIGH and above (EDD).
+# (code, label, kind, applies_customer_type, min_risk_rank, data_field, doc_type,
+#  applies_legal_form). The last field scopes a company requirement to specific
+# legal forms (comma-separated); None = every form. Listed companies are absent
+# from the UBO-heavy rows on purpose — they qualify for simplified due diligence.
 DEFAULT_REQUIREMENTS = [
     # Trusts / legal arrangements (FATF R.25: role-based beneficial ownership)
-    ("TRUST_DEED", "Trust deed / declaration of trust", "DOCUMENT", "TRUST", 0, None, "TRUST_DEED"),
-    ("TRUSTEE_ID", "Trustee identity document(s)", "DOCUMENT", "TRUST", 0, None, "TRUSTEE_ID"),
-    ("TRUST_TYPE", "Type of trust", "DATA", "TRUST", 0, "trust_type", None),
-    ("GOVERNING_LAW", "Governing law", "DATA", "TRUST", 0, "governing_law", None),
-    ("PURPOSE_OF_TRUST", "Purpose of the trust", "DATA", "TRUST", 0, "purpose_of_trust", None),
-    ("SETTLOR_NAMES", "Settlor(s) declared", "DATA", "TRUST", 0, "settlor_names", None),
-    ("TRUSTEE_NAMES", "Trustee(s) declared", "DATA", "TRUST", 0, "trustee_names", None),
-    ("BENEFICIARY_NAMES", "Beneficiaries / class declared", "DATA", "TRUST", 0, "beneficiary_names", None),
+    ("TRUST_DEED", "Trust deed / declaration of trust", "DOCUMENT", "TRUST", 0, None, "TRUST_DEED", None),
+    ("TRUSTEE_ID", "Trustee identity document(s)", "DOCUMENT", "TRUST", 0, None, "TRUSTEE_ID", None),
+    ("TRUST_TYPE", "Type of trust", "DATA", "TRUST", 0, "trust_type", None, None),
+    ("GOVERNING_LAW", "Governing law", "DATA", "TRUST", 0, "governing_law", None, None),
+    ("PURPOSE_OF_TRUST", "Purpose of the trust", "DATA", "TRUST", 0, "purpose_of_trust", None, None),
+    ("SETTLOR_NAMES", "Settlor(s) declared", "DATA", "TRUST", 0, "settlor_names", None, None),
+    ("TRUSTEE_NAMES", "Trustee(s) declared", "DATA", "TRUST", 0, "trustee_names", None, None),
+    ("BENEFICIARY_NAMES", "Beneficiaries / class declared", "DATA", "TRUST", 0, "beneficiary_names", None, None),
     # Individuals
-    ("IDENTITY_DOCUMENT", "Identity document", "DOCUMENT", "INDIVIDUAL", 0, None, "PASSPORT"),
-    ("PROOF_OF_ADDRESS", "Proof of address", "DOCUMENT", "INDIVIDUAL", 0, None, "PROOF_OF_ADDRESS"),
-    ("DATE_OF_BIRTH", "Date of birth", "DATA", "INDIVIDUAL", 0, "date_of_birth", None),
-    ("NATIONALITY", "Nationality", "DATA", "INDIVIDUAL", 0, "nationality", None),
-    ("OCCUPATION", "Occupation", "DATA", "INDIVIDUAL", 0, "occupation", None),
-    # Companies
-    ("CERTIFICATE_OF_INCORPORATION", "Certificate of incorporation", "DOCUMENT", "COMPANY", 0, None, "CERTIFICATE_OF_INCORPORATION"),
-    ("ARTICLES_OF_ASSOCIATION", "Articles of association", "DOCUMENT", "COMPANY", 0, None, "ARTICLES_OF_ASSOCIATION"),
-    ("REGISTRATION_NUMBER", "Registration number", "DATA", "COMPANY", 0, "registration_number", None),
-    ("BUSINESS_ACTIVITY", "Business activity", "DATA", "COMPANY", 0, "business_activity", None),
-    ("TAX_RESIDENCE", "Country of tax residence", "DATA", "INDIVIDUAL", 0, "country_of_tax_residence", None),
-    ("PROOF_OF_INCOME", "Proof of income / revenue", "DOCUMENT", "INDIVIDUAL", 1, None, "PROOF_OF_INCOME"),
-    ("SHAREHOLDER_REGISTER", "Shareholder register", "DOCUMENT", "COMPANY", 1, None, "SHAREHOLDER_REGISTER"),
-    ("FINANCIAL_STATEMENTS", "Financial statements", "DOCUMENT", "COMPANY", 1, None, "FINANCIAL_STATEMENTS"),
+    ("IDENTITY_DOCUMENT", "Identity document", "DOCUMENT", "INDIVIDUAL", 0, None, "PASSPORT", None),
+    ("PROOF_OF_ADDRESS", "Proof of address", "DOCUMENT", "INDIVIDUAL", 0, None, "PROOF_OF_ADDRESS", None),
+    ("DATE_OF_BIRTH", "Date of birth", "DATA", "INDIVIDUAL", 0, "date_of_birth", None, None),
+    ("NATIONALITY", "Nationality", "DATA", "INDIVIDUAL", 0, "nationality", None, None),
+    ("OCCUPATION", "Occupation", "DATA", "INDIVIDUAL", 0, "occupation", None, None),
+    ("TAX_RESIDENCE", "Country of tax residence", "DATA", "INDIVIDUAL", 0, "country_of_tax_residence", None, None),
+    ("PROOF_OF_INCOME", "Proof of income / revenue", "DOCUMENT", "INDIVIDUAL", 1, None, "PROOF_OF_INCOME", None),
+    # Companies — identity documents, required of every form (incl. listed)
+    ("CERTIFICATE_OF_INCORPORATION", "Certificate of incorporation", "DOCUMENT", "COMPANY", 0, None, "CERTIFICATE_OF_INCORPORATION", None),
+    ("ARTICLES_OF_ASSOCIATION", "Articles of association", "DOCUMENT", "COMPANY", 0, None, "ARTICLES_OF_ASSOCIATION", None),
+    ("REGISTRATION_NUMBER", "Registration number", "DATA", "COMPANY", 0, "registration_number", None, None),
+    ("BUSINESS_ACTIVITY", "Business activity", "DATA", "COMPANY", 0, "business_activity", None, None),
+    ("FINANCIAL_STATEMENTS", "Financial statements", "DOCUMENT", "COMPANY", 1, None, "FINANCIAL_STATEMENTS", None),
+    # Privately held + partnership — the beneficial-ownership diligence a listed
+    # company is exempted from (SDD).
+    ("COMMERCIAL_REGISTER", "Commercial register extract", "DOCUMENT", "COMPANY", 0, None, "COMMERCIAL_REGISTER", "PRIVATELY_HELD,PARTNERSHIP"),
+    ("BENEFICIAL_OWNER_EXTRACT", "Beneficial owner register / extract", "DOCUMENT", "COMPANY", 0, None, "BENEFICIAL_OWNER_EXTRACT", "PRIVATELY_HELD,PARTNERSHIP"),
+    ("STRUCTURE_CHART", "Ownership structure chart (all layers)", "DOCUMENT", "COMPANY", 0, None, "STRUCTURE_CHART", "PRIVATELY_HELD,PARTNERSHIP"),
+    ("SIGNATORY_LIST", "Authorised signatory list", "DOCUMENT", "COMPANY", 0, None, "SIGNATORY_LIST", "PRIVATELY_HELD,PARTNERSHIP"),
+    ("UBO_IDENTITY_DOCS", "UBO / SMO / signatory identity documents", "DOCUMENT", "COMPANY", 0, None, "UBO_IDENTITY_DOCS", "PRIVATELY_HELD,PARTNERSHIP"),
+    ("UBO_PROOF_OF_ADDRESS", "UBO / SMO proof of address", "DOCUMENT", "COMPANY", 0, None, "UBO_PROOF_OF_ADDRESS", "PRIVATELY_HELD,PARTNERSHIP"),
+    ("SHAREHOLDER_REGISTER", "Shareholder register", "DOCUMENT", "COMPANY", 1, None, "SHAREHOLDER_REGISTER", "PRIVATELY_HELD,PARTNERSHIP"),
+    # Partnership-specific
+    ("AML_LETTER", "AML letter", "DOCUMENT", "COMPANY", 0, None, "AML_LETTER", "PARTNERSHIP"),
+    ("LPA", "Limited partnership agreement (LPA)", "DOCUMENT", "COMPANY", 0, None, "LPA", "PARTNERSHIP"),
+    # Listed — the simplified-due-diligence checklist
+    ("PROOF_OF_LISTING", "Proof of listing with free float", "DOCUMENT", "COMPANY", 0, None, "PROOF_OF_LISTING", "LISTED"),
     # Any customer
-    ("PURPOSE_OF_RELATIONSHIP", "Purpose of relationship", "DATA", "ANY", 0, "purpose_of_relationship", None),
-    ("EXPECTED_ACTIVITY", "Expected account activity", "DATA", "ANY", 0, "expected_monthly_volume", None),
-    ("PEP_SELF_DECLARATION", "PEP self-declaration", "DATA", "ANY", 0, "pep_self_declaration", None),
+    ("PURPOSE_OF_RELATIONSHIP", "Purpose of relationship", "DATA", "ANY", 0, "purpose_of_relationship", None, None),
+    ("EXPECTED_ACTIVITY", "Expected account activity", "DATA", "ANY", 0, "expected_monthly_volume", None, None),
+    ("PEP_SELF_DECLARATION", "PEP self-declaration", "DATA", "ANY", 0, "pep_self_declaration", None, None),
     # Enhanced Due Diligence (HIGH risk and above)
-    ("SOURCE_OF_FUNDS", "Source of funds", "DATA", "ANY", 2, "source_of_funds", None),
-    ("SOURCE_OF_WEALTH", "Source of wealth", "DATA", "ANY", 2, "source_of_wealth", None),
-    ("SOURCE_OF_FUNDS_EVIDENCE", "Source of funds evidence", "DOCUMENT", "ANY", 2, None, "SOURCE_OF_FUNDS_EVIDENCE"),
+    ("SOURCE_OF_FUNDS", "Source of funds", "DATA", "ANY", 2, "source_of_funds", None, None),
+    ("SOURCE_OF_WEALTH", "Source of wealth", "DATA", "ANY", 2, "source_of_wealth", None, None),
+    ("SOURCE_OF_FUNDS_EVIDENCE", "Source of funds evidence", "DOCUMENT", "ANY", 2, None, "SOURCE_OF_FUNDS_EVIDENCE", None),
 ]
 
 
@@ -454,14 +471,18 @@ def _seed_risk_methodology():
 
 
 def _seed_requirement_definitions():
-    for code, label, kind, ctype, rank, data_field, doc_type in DEFAULT_REQUIREMENTS:
+    for code, label, kind, ctype, rank, data_field, doc_type, legal_form in DEFAULT_REQUIREMENTS:
         exists = (RequirementDefinition.query
                   .filter_by(code=code, organization_id=None).first())
         if not exists:
             db.session.add(RequirementDefinition(
                 organization_id=None, code=code, label=label, kind=kind,
-                applies_customer_type=ctype, min_risk_rank=rank,
-                data_field=data_field, doc_type=doc_type))
+                applies_customer_type=ctype, applies_legal_form=legal_form,
+                min_risk_rank=rank, data_field=data_field, doc_type=doc_type))
+        elif exists.applies_legal_form != legal_form:
+            # Idempotent re-scope: a form-targeted requirement whose scope changed
+            # (e.g. shareholder register moved off listed companies) is corrected.
+            exists.applies_legal_form = legal_form
     db.session.commit()
 
 

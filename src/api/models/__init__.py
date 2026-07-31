@@ -54,7 +54,8 @@ from api.models.regulatory import (
 )
 from api.models.customer import (
     Customer, Document, RiskAssessment,
-    CUSTOMER_TYPES, RISK_LEVELS, HIGH_RISK_COUNTRIES, HIGH_RISK_ACTIVITIES,
+    CUSTOMER_TYPES, COMPANY_LEGAL_FORMS, SDD_LEGAL_FORMS,
+    RISK_LEVELS, HIGH_RISK_COUNTRIES, HIGH_RISK_ACTIVITIES,
 )
 from api.models.parties import (
     Party, Person, LegalEntity, Trust, Address, OwnershipRelationship,
@@ -109,7 +110,8 @@ __all__ = [
     "RegulatoryChange", "ImpactAssessment",
     "SOURCE_TYPES", "CONTROL_STATUSES", "CHANGE_IMPACT", "CHANGE_STATUSES",
     "Customer", "Document", "RiskAssessment",
-    "CUSTOMER_TYPES", "RISK_LEVELS", "HIGH_RISK_COUNTRIES", "HIGH_RISK_ACTIVITIES",
+    "CUSTOMER_TYPES", "COMPANY_LEGAL_FORMS", "SDD_LEGAL_FORMS",
+    "RISK_LEVELS", "HIGH_RISK_COUNTRIES", "HIGH_RISK_ACTIVITIES",
     "Party", "Person", "LegalEntity", "Trust", "Address", "OwnershipRelationship",
     "PARTY_KINDS", "RELATIONSHIP_TYPES", "TRUST_ROLES", "CONTROL_TYPES", "ADDRESS_TYPES",
     "UBO_THRESHOLD",
