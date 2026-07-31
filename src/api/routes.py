@@ -881,6 +881,15 @@ def customer_group_risk(user, cid):
     return jsonify(group_service.group_risk(customer)), 200
 
 
+@api.route("/customers/<int:cid>/group-flows", methods=["GET"])
+@permission_required("transaction.view")
+def customer_group_flows(user, cid):
+    """Directed money flows between members of this customer's economic group —
+    intra-group transfers and round-trips that per-customer monitoring misses."""
+    customer = _get_customer_for(user, cid)
+    return jsonify(group_service.group_flows(customer)), 200
+
+
 @api.route("/parties/<int:pid>/profile", methods=["GET"])
 @permission_required("kyb.view")
 def party_profile(user, pid):

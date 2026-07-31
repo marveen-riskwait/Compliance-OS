@@ -13,9 +13,9 @@ It never silently rewrites a member's own score; it surfaces the *inherited*
 signal and lets the officer act, in keeping with the platform's
 suggest-and-confirm stance (the same choice made for identity resolution).
 """
-from api.models import Customer, Party
+from api.models import Customer, Party, Transaction
 from api.engine import ownership
-from api.engine.party_service import party_links
+from api.engine.party_service import party_links, _name_ratio, _norm
 
 _LEVEL_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
 _HIGH = _LEVEL_ORDER["HIGH"]
@@ -142,3 +142,72 @@ def group_risk(customer):
         "bridges": sorted(bridges, key=lambda x: (not x["is_pep"], x["name"])),
         "drivers": drivers,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Linked transactional flows — money moving BETWEEN members of the same group.
+# Per-customer monitoring sees each leg in isolation; only at the group level do
+# intra-group transfers, round-trips and layering between related entities show
+# up. A counterparty is matched (fuzzily) to a sister member by name.
+# --------------------------------------------------------------------------- #
+_FLOW_MATCH_MIN = 0.85
+
+
+def _match_member(counterparty, members, exclude_id):
+    """Best sister member whose name matches this counterparty (or None)."""
+    cp = _norm(counterparty)
+    if not cp:
+        return None
+    best_id, best = None, 0.0
+    for oid, oc in members.items():
+        if oid == exclude_id:
+            continue
+        nm = _norm(oc.name)
+        score = _name_ratio(counterparty, oc.name)
+        if nm and nm in cp:              # counterparty text contains the member name
+            score = max(score, 0.95)
+        if score > best:
+            best_id, best = oid, score
+    return best_id if best >= _FLOW_MATCH_MIN else None
+
+
+def group_flows(customer):
+    """Directed money flows between members of the customer's economic group.
+    Each booked transaction whose counterparty resolves to a sister member
+    becomes an edge (payer -> payee, by its own direction); edges are aggregated
+    per pair with amount, count, how many legs were flagged, and a round_trip
+    marker when money also flows back. Amounts are as-booked in the reporting
+    currency — mirror legs booked on both sides are not reconciled (a later
+    refinement, like FX normalisation)."""
+    group = build_group(customer)
+    members = {c.id: c for c in
+               (Customer.query.get(cid) for cid in group["member_ids"])
+               if c is not None}
+
+    flows = {}      # (src_id, dst_id) -> aggregate
+    for cid, c in members.items():
+        for t in Transaction.query.filter_by(customer_id=cid).all():
+            other = _match_member(t.counterparty_name, members, cid)
+            if other is None:
+                continue
+            src, dst = (cid, other) if t.direction == "OUTBOUND" else (other, cid)
+            f = flows.setdefault((src, dst), {
+                "source_id": src, "target_id": dst,
+                "amount_base": 0.0, "count": 0, "flagged": 0})
+            f["amount_base"] += (t.amount_base or 0)
+            f["count"] += 1
+            if t.flagged:
+                f["flagged"] += 1
+
+    edges = []
+    for (src, dst), f in flows.items():
+        edges.append({**f,
+                      "source_name": members[src].name,
+                      "target_name": members[dst].name,
+                      "round_trip": (dst, src) in flows})
+    edges.sort(key=lambda e: -e["amount_base"])
+    return {"group_size": len(members),
+            "total_base": round(sum(e["amount_base"] for e in edges), 2),
+            "flagged_flows": sum(1 for e in edges if e["flagged"]),
+            "round_trips": sum(1 for e in edges if e["round_trip"]) // 2,
+            "flows": edges}

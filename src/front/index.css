@@ -809,3 +809,6 @@ h1, h2, h3, h4, .co-serif {
   background: #fff8f1; font-size: .84rem; line-height: 1.4; }
 .grp-sub { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em;
   color: var(--co-muted); font-weight: 700; margin: .8rem 0 .3rem; }
+.grp-flow { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.grp-flow-arrow { color: var(--co-muted); font-size: .8rem; }
+.grp-flow-tag { margin-left: .4rem; }

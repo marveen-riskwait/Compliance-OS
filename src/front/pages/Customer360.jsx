@@ -96,6 +96,7 @@ export const Customer360 = () => {
   const [ownerCands, setOwnerCands] = useState([]);   // existing actors that match the typed name
   const [relations, setRelations] = useState(null);    // cross-entity relations (Relations tab)
   const [groupRisk, setGroupRisk] = useState(null);    // aggregated risk across the economic group
+  const [groupFlows, setGroupFlows] = useState(null);  // money flows between group members
   const [addrForm, setAddrForm] = useState({ number: "", street: "", city: "", postal_code: "", country: "" });
   const [fieldForm, setFieldForm] = useState({ field_key: "", value: "", source: "manual" });
   const [kyb, setKyb] = useState(null);
@@ -249,6 +250,7 @@ export const Customer360 = () => {
       api.customerRelations(id).then(setRelations)
         .catch(() => setRelations({ connections: [], actors: [] }));
       api.groupRisk(id).then(setGroupRisk).catch(() => setGroupRisk(null));
+      api.groupFlows(id).then(setGroupFlows).catch(() => setGroupFlows(null));
     }
   }, [tab, id]);
 
@@ -835,6 +837,64 @@ export const Customer360 = () => {
     </div>
   );
 
+  const groupFlowsCard = (
+    <div className="co-card">
+      <div className="section-title grp-head">
+        <span>Intra-group transaction flows</span>
+        {groupFlows && groupFlows.flows.length > 0 && (
+          <span className="chip INFO">{money(groupFlows.total_base, "EUR")} total</span>
+        )}
+      </div>
+      <p className="muted" style={{ fontSize: ".82rem", marginTop: 0 }}>
+        Money moving between members of this group. Per-file monitoring sees each
+        leg alone — only here do intra-group transfers and round-trips surface.
+      </p>
+
+      {groupFlows === null && <div className="muted" style={{ fontSize: ".88rem" }}>Loading flows…</div>}
+
+      {groupFlows && groupFlows.flows.length === 0 && (
+        <div className="muted" style={{ fontSize: ".88rem" }}>
+          No transactions booked between members of this group yet. A flow appears
+          when a booked transaction's counterparty matches a connected entity.
+        </div>
+      )}
+
+      {groupFlows && groupFlows.flows.length > 0 && (
+        <>
+          {(groupFlows.round_trips > 0 || groupFlows.flagged_flows > 0) && (
+            <div className="grp-inherit" style={{ marginTop: ".2rem" }}>
+              {groupFlows.round_trips > 0 && (
+                <><strong>Round-trip{groupFlows.round_trips > 1 ? "s" : ""} detected.</strong>{" "}
+                  Money flows in both directions between related entities — a layering pattern. </>
+              )}
+              {groupFlows.flagged_flows > 0 && (
+                <>{groupFlows.flagged_flows} flow{groupFlows.flagged_flows > 1 ? "s" : ""} include a flagged transaction.</>
+              )}
+            </div>
+          )}
+          {groupFlows.flows.map((f) => (
+            <div className="work-row" key={`${f.source_id}-${f.target_id}`}>
+              <span className={`dotsev ${f.flagged ? "HIGH" : "INFO"}`} />
+              <div className="grow">
+                <div className="title grp-flow">
+                  <Link to={`/customers/${f.source_id}`}>{f.source_name}</Link>
+                  <i className="fa-solid fa-arrow-right-long grp-flow-arrow" />
+                  <Link to={`/customers/${f.target_id}`}>{f.target_name}</Link>
+                </div>
+                <div className="meta">
+                  {f.count} transaction{f.count > 1 ? "s" : ""}
+                  {f.round_trip && <span className="chip MEDIUM grp-flow-tag">round-trip</span>}
+                  {f.flagged > 0 && <span className="chip HIGH grp-flow-tag">{f.flagged} flagged</span>}
+                </div>
+              </div>
+              <span className="chip INFO">{money(f.amount_base, "EUR")}</span>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+
   const relationsCard = (
     <div className="co-card">
       <div className="section-title">Connected entities &amp; common interests</div>
@@ -1220,6 +1280,9 @@ export const Customer360 = () => {
         <>
           <div className="row g-3">
             <div className="col-12">{groupRiskCard}</div>
+          </div>
+          <div className="row g-3 mt-0">
+            <div className="col-12">{groupFlowsCard}</div>
           </div>
           <div className="row g-3 mt-0">
             <div className="col-12">{relationsCard}</div>
