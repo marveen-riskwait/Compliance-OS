@@ -15,6 +15,12 @@ from api.models.base import db, utcnow
 # How a factor decides whether it applies to a customer.
 FACTOR_CONDITIONS = ("FLAG", "COUNTRY_IN", "ACTIVITY_IN")
 
+# Lifecycle of an org's methodology. A DRAFT is freely editable; activating it
+# freezes it (ACTIVE) and archives the previous one, so every RiskAssessment
+# stays interpretable under the exact version that produced it — an active or
+# archived methodology is never mutated in place.
+METHODOLOGY_STATUSES = ("DRAFT", "ACTIVE", "ARCHIVED")
+
 
 class RiskMethodology(db.Model):
     __tablename__ = "risk_methodology"
@@ -23,7 +29,10 @@ class RiskMethodology(db.Model):
     organization_id: Mapped[int] = mapped_column(ForeignKey("organization.id"), nullable=True)
     version: Mapped[str] = mapped_column(String(20), nullable=False)   # e.g. v1, v2.1
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    # `active` stays the single source of truth the risk engine queries; `status`
+    # adds the DRAFT/ARCHIVED lifecycle around it (active == status ACTIVE).
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     factors: Mapped[list["RiskFactor"]] = relationship(back_populates="methodology")
@@ -31,7 +40,7 @@ class RiskMethodology(db.Model):
 
     def serialize(self, deep=False):
         data = {"id": self.id, "version": self.version, "name": self.name,
-                "active": self.active,
+                "active": self.active, "status": self.status,
                 "organization_id": self.organization_id}
         if deep:
             data["factors"] = [f.serialize() for f in self.factors]

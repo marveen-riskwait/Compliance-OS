@@ -657,23 +657,241 @@ const IntegrationsTab = ({ me }) => {
 };
 
 // ------------------------------------------------------- Risk Model tab
-const RiskModelTab = () => {
+const LEVELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+const CT = { FLAG: "flag on file", COUNTRY_IN: "country in list", ACTIVITY_IN: "activity in list" };
+
+const conditionSummary = (f) =>
+  (CT[f.condition_type] || f.condition_type) +
+  (f.condition_value?.field ? `: ${f.condition_value.field}` : "") +
+  (f.condition_value?.values
+    ? `: ${f.condition_value.values.slice(0, 4).join(", ")}${f.condition_value.values.length > 4 ? "…" : ""}`
+    : "");
+
+// One factor row. Read-only for a frozen methodology; for a draft the impact is
+// editable inline and the factor can be disabled or removed.
+const FactorRow = ({ f, editable, reload, onError }) => {
+  const [impact, setImpact] = useState(f.impact);
+  const patch = async (body) => {
+    onError(null);
+    try { await api.updateRiskFactor(f.id, body); reload(); }
+    catch (e) { onError(e.message); }
+  };
+  return (
+    <tr style={{ opacity: f.active ? 1 : 0.45 }}>
+      <td><b>{f.code}</b> <span className="muted">· {f.label}</span></td>
+      <td className="muted">{conditionSummary(f)}</td>
+      <td style={{ textAlign: "right" }}>
+        {editable ? (
+          <input type="number" className="form-control form-control-sm text-end"
+            style={{ width: 78, display: "inline-block" }} value={impact}
+            onChange={(e) => setImpact(e.target.value)}
+            onBlur={() => Number(impact) !== f.impact && patch({ impact: Number(impact) })} />
+        ) : (
+          <span style={{ color: "var(--sev-high)", fontWeight: 700 }}>+{f.impact}</span>
+        )}
+      </td>
+      {editable && (
+        <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+          <button className="btn btn-sm btn-outline-secondary" title={f.active ? "Disable" : "Enable"}
+            onClick={() => patch({ active: !f.active })}>
+            <i className={`fa-solid ${f.active ? "fa-eye" : "fa-eye-slash"}`} />
+          </button>{" "}
+          <button className="btn btn-sm btn-outline-danger" title="Remove"
+            onClick={async () => { onError(null); try { await api.deleteRiskFactor(f.id); reload(); } catch (e) { onError(e.message); } }}>
+            <i className="fa-solid fa-trash" />
+          </button>
+        </td>
+      )}
+    </tr>
+  );
+};
+
+const AddFactorForm = ({ mid, options, reload, onError }) => {
+  const blank = { code: "", label: "", impact: 10, condition_type: "FLAG",
+                  field: (options.flag_fields || [])[0] || "is_pep", values: "" };
+  const [f, setF] = useState(blank);
+  const submit = async (e) => {
+    e.preventDefault(); onError(null);
+    const condition_value = f.condition_type === "FLAG"
+      ? { field: f.field }
+      : { values: f.values.split(",").map((s) => s.trim()).filter(Boolean) };
+    try {
+      await api.addRiskFactor(mid, { code: f.code, label: f.label,
+        impact: Number(f.impact), condition_type: f.condition_type, condition_value });
+      setF(blank); reload();
+    } catch (err) { onError(err.message); }
+  };
+  return (
+    <form className="row g-2 align-items-end" onSubmit={submit} style={{ marginTop: ".4rem" }}>
+      <div className="col-6 col-md-2">
+        <label className="form-label">Code</label>
+        <input className="form-control form-control-sm" required value={f.code}
+          onChange={(e) => setF({ ...f, code: e.target.value })} placeholder="PEP" />
+      </div>
+      <div className="col-6 col-md-3">
+        <label className="form-label">Label</label>
+        <input className="form-control form-control-sm" required value={f.label}
+          onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="Politically exposed" />
+      </div>
+      <div className="col-6 col-md-3">
+        <label className="form-label">Condition</label>
+        <select className="form-select form-select-sm" value={f.condition_type}
+          onChange={(e) => setF({ ...f, condition_type: e.target.value })}>
+          {(options.condition_types || ["FLAG"]).map((c) => <option key={c} value={c}>{CT[c] || c}</option>)}
+        </select>
+      </div>
+      <div className="col-6 col-md-2">
+        {f.condition_type === "FLAG" ? (
+          <>
+            <label className="form-label">Flag</label>
+            <select className="form-select form-select-sm" value={f.field}
+              onChange={(e) => setF({ ...f, field: e.target.value })}>
+              {(options.flag_fields || []).map((x) => <option key={x} value={x}>{x}</option>)}
+            </select>
+          </>
+        ) : (
+          <>
+            <label className="form-label">Values (comma-sep.)</label>
+            <input className="form-control form-control-sm" value={f.values}
+              onChange={(e) => setF({ ...f, values: e.target.value })} placeholder="Iran, Panama" />
+          </>
+        )}
+      </div>
+      <div className="col-6 col-md-1">
+        <label className="form-label">Pts</label>
+        <input type="number" className="form-control form-control-sm" value={f.impact}
+          onChange={(e) => setF({ ...f, impact: e.target.value })} />
+      </div>
+      <div className="col-12 col-md-1">
+        <button className="btn btn-sm btn-co w-100"><i className="fa-solid fa-plus" /></button>
+      </div>
+    </form>
+  );
+};
+
+// The score bands that map a total to a level. Edited as a set and validated
+// server-side (contiguous, gap-free, top band open-ended).
+const BandsEditor = ({ m, reload, onError }) => {
+  const seed = LEVELS.map((l) => {
+    const t = (m.thresholds || []).find((x) => x.level === l) || {};
+    return { level: l, min_score: t.min_score ?? "", max_score: t.max_score ?? "" };
+  });
+  const [bands, setBands] = useState(seed);
+  const [saving, setSaving] = useState(false);
+  const set = (i, k, v) => setBands(bands.map((b, j) => (j === i ? { ...b, [k]: v } : b)));
+  const save = async () => {
+    setSaving(true); onError(null);
+    try {
+      await api.setRiskThresholds(m.id, bands.map((b) => ({
+        level: b.level, min_score: Number(b.min_score),
+        max_score: b.max_score === "" ? null : Number(b.max_score) })));
+      reload();
+    } catch (e) { onError(e.message); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div style={{ marginTop: ".6rem" }}>
+      <div className="section-title" style={{ fontSize: ".72rem" }}>Score bands → level</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: ".5rem", alignItems: "flex-end" }}>
+        {bands.map((b, i) => (
+          <div key={b.level} style={{ display: "flex", flexDirection: "column", gap: ".2rem" }}>
+            <span className={`chip ${b.level}`} style={{ alignSelf: "flex-start" }}>{b.level}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: ".25rem" }}>
+              <input type="number" className="form-control form-control-sm" style={{ width: 66 }}
+                value={b.min_score} onChange={(e) => set(i, "min_score", e.target.value)} />
+              <span className="muted">–</span>
+              <input type="number" className="form-control form-control-sm" style={{ width: 66 }}
+                value={b.max_score} disabled={i === bands.length - 1}
+                placeholder={i === bands.length - 1 ? "∞" : ""}
+                onChange={(e) => set(i, "max_score", e.target.value)} />
+            </div>
+          </div>
+        ))}
+        <button className="btn btn-sm btn-outline-secondary" onClick={save} disabled={saving}>
+          {saving ? "Saving…" : "Save bands"}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Full editor for a DRAFT methodology.
+const DraftEditor = ({ m, options, reload, onError }) => {
+  const [name, setName] = useState(m.name);
+  const [busy, setBusy] = useState(false);
+  const act = async (fn) => {
+    setBusy(true); onError(null);
+    try { await fn(); reload(); } catch (e) { onError(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <div className="d-flex gap-2 align-items-center" style={{ marginBottom: ".4rem" }}>
+        <input className="form-control form-control-sm" style={{ maxWidth: 280 }} value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => name.trim() && name !== m.name && act(() => api.renameRiskMethodology(m.id, name.trim()))} />
+        <span className="muted" style={{ fontSize: ".8rem" }}>editing draft</span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table className="table table-sm align-middle" style={{ fontSize: ".9rem" }}>
+          <thead><tr className="muted"><th>Factor</th><th>Condition</th><th style={{ textAlign: "right" }}>Impact</th><th /></tr></thead>
+          <tbody>
+            {m.factors.map((f) => (
+              <FactorRow key={f.id} f={f} editable reload={reload} onError={onError} />
+            ))}
+            {m.factors.length === 0 && (
+              <tr><td colSpan={4} className="muted" style={{ fontSize: ".85rem" }}>No factors yet — add at least one before activating.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <AddFactorForm mid={m.id} options={options} reload={reload} onError={onError} />
+      <BandsEditor m={m} reload={reload} onError={onError} />
+      <div className="d-flex gap-2" style={{ marginTop: ".8rem" }}>
+        <button className="btn btn-sm btn-co" disabled={busy}
+          onClick={() => act(() => api.activateRiskMethodology(m.id))}>
+          <i className="fa-solid fa-check" /> Activate this barème
+        </button>
+        <button className="btn btn-sm btn-outline-danger" disabled={busy}
+          onClick={() => window.confirm("Delete this draft?") && act(() => api.deleteRiskMethodology(m.id))}>
+          <i className="fa-solid fa-trash" /> Delete draft
+        </button>
+      </div>
+    </>
+  );
+};
+
+const RiskModelTab = ({ me }) => {
   const [meths, setMeths] = useState([]);
   const [geo, setGeo] = useState([]);
+  const [options, setOptions] = useState({ flag_fields: [], condition_types: [], levels: LEVELS });
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState(null);
+  const canManage = can(me, "risk.manage");
   const load = () => {
     api.riskMethodologies().then(setMeths).catch((e) => setError(e.message));
     api.countryLists().then(setGeo).catch(() => {});
   };
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+    if (canManage) api.riskMethodologyOptions().then(setOptions).catch(() => {});
+  }, []); // eslint-disable-line
   const syncCountries = async () => {
     setSyncing(true); setError(null);
     try { await api.syncCountryLists(); load(); }
     catch (e) { setError(e.message); }
     finally { setSyncing(false); }
   };
-  const CT = { FLAG: "flag", COUNTRY_IN: "country in list", ACTIVITY_IN: "activity in list" };
+  const newDraft = async () => {
+    setError(null);
+    try { await api.createRiskMethodology({}); load(); }
+    catch (e) { setError(e.message); }
+  };
+  const clone = async (mid) => {
+    setError(null);
+    try { await api.createRiskMethodology({ clone_from_id: mid }); load(); }
+    catch (e) { setError(e.message); }
+  };
+  const STATUS_SEV = { ACTIVE: "LOW", DRAFT: "MEDIUM", ARCHIVED: "INFO" };
   return (
     <>
       {error && <div className="alert alert-danger py-2">{error}</div>}
@@ -718,40 +936,64 @@ const RiskModelTab = () => {
         ))}
       </div>
 
+      {canManage && (
+        <div className="co-card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: ".5rem" }}>
+          <div>
+            <div className="section-title" style={{ marginBottom: ".2rem" }}>Your barème</div>
+            <p className="muted" style={{ fontSize: ".82rem", margin: 0 }}>
+              Build your own scoring model — weighted factors and the score bands
+              that define each risk level. Editing a draft never touches the live
+              version; activating it archives the previous one so history stays readable.
+            </p>
+          </div>
+          <button className="btn btn-sm btn-co" onClick={newDraft}>
+            <i className="fa-solid fa-plus" /> New barème (from active)
+          </button>
+        </div>
+      )}
+
       {meths.length === 0 && <div className="empty">No risk methodology configured.</div>}
       {meths.map((m) => (
         <div className="co-card" key={m.id}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: ".5rem", flexWrap: "wrap" }}>
             <div className="section-title" style={{ marginBottom: 0 }}>
               {m.name} <span className="muted" style={{ fontWeight: 400 }}>· version {m.version}</span>
             </div>
-            <span className={`chip ${m.active ? "LOW" : "INFO"}`}>
-              {m.active ? "ACTIVE" : "inactive"}{m.organization_id ? " · org" : " · system"}
-            </span>
-          </div>
-          <div style={{ overflowX: "auto", marginTop: ".5rem" }}>
-            <table className="table table-sm align-middle" style={{ fontSize: ".9rem" }}>
-              <thead><tr className="muted"><th>Factor</th><th>Condition</th><th style={{ textAlign: "right" }}>Impact</th></tr></thead>
-              <tbody>
-                {m.factors.map((f) => (
-                  <tr key={f.id}>
-                    <td><b>{f.code}</b> <span className="muted">· {f.label}</span></td>
-                    <td className="muted">{CT[f.condition_type] || f.condition_type}
-                      {f.condition_value.field ? `: ${f.condition_value.field}` : ""}
-                      {f.condition_value.values ? `: ${f.condition_value.values.join(", ")}` : ""}</td>
-                    <td style={{ textAlign: "right", color: "var(--sev-high)", fontWeight: 700 }}>+{f.impact}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: ".35rem" }}>
-            {m.thresholds.map((t) => (
-              <span key={t.id} className={`chip ${t.level}`}>
-                {t.level}: {t.min_score}{t.max_score != null ? `–${t.max_score}` : "+"}
+            <div className="d-flex align-items-center gap-2">
+              <span className={`chip ${STATUS_SEV[m.status] || "INFO"}`}>
+                {m.status || (m.active ? "ACTIVE" : "inactive")}{m.organization_id ? " · org" : " · system"}
               </span>
-            ))}
+              {canManage && m.status !== "DRAFT" && (
+                <button className="btn btn-sm btn-outline-secondary" onClick={() => clone(m.id)}>
+                  <i className="fa-solid fa-copy" /> Clone to edit
+                </button>
+              )}
+            </div>
           </div>
+
+          {canManage && m.status === "DRAFT" ? (
+            <DraftEditor m={m} options={options} reload={load} onError={setError} />
+          ) : (
+            <>
+              <div style={{ overflowX: "auto", marginTop: ".5rem" }}>
+                <table className="table table-sm align-middle" style={{ fontSize: ".9rem" }}>
+                  <thead><tr className="muted"><th>Factor</th><th>Condition</th><th style={{ textAlign: "right" }}>Impact</th></tr></thead>
+                  <tbody>
+                    {m.factors.map((f) => (
+                      <FactorRow key={f.id} f={f} editable={false} reload={load} onError={setError} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: ".35rem" }}>
+                {m.thresholds.map((t) => (
+                  <span key={t.id} className={`chip ${t.level}`}>
+                    {t.level}: {t.min_score}{t.max_score != null ? `–${t.max_score}` : "+"}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       ))}
     </>
@@ -1012,7 +1254,7 @@ export const Administration = () => {
       {tab === "users" && <UsersTab me={me} />}
       {tab === "teams" && <TeamsTab me={me} />}
       {tab === "roles" && <RolesTab me={me} />}
-      {tab === "risk" && <RiskModelTab />}
+      {tab === "risk" && <RiskModelTab me={me} />}
       {tab === "integrations" && <IntegrationsTab me={me} />}
       {tab === "watchlists" && <WatchlistsTab me={me} />}
       {tab === "organization" && <OrganizationTab me={me} />}

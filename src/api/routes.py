@@ -37,7 +37,8 @@ from api.engine import (risk_engine, audit, ownership, data_scope, workload,
                         sla, assignment, party_service, requirement_engine,
                         kyc_service, provider_service, alert_service,
                         review_engine, workflow_engine, regulatory_service,
-                        assistant_service, watchlist_service, group_service)
+                        assistant_service, watchlist_service, group_service,
+                        methodology_service)
 from api.engine.screening_service import review_match
 from api.tasks import run_screening
 
@@ -2738,6 +2739,99 @@ def list_risk_methodologies(user):
 def active_risk_methodology(user):
     meth = risk_engine.active_methodology(user.organization_id)
     return jsonify(meth.serialize(deep=True) if meth else None), 200
+
+
+# --- Editable barème: build the org's own risk methodology -----------------
+# Vocabulary the editor needs (which flags a FLAG factor may test, condition
+# types, the fixed level ladder).
+@api.route("/risk/methodology-options", methods=["GET"])
+@permission_required("risk.view")
+def risk_methodology_options(user):
+    from api.models.risk import FACTOR_CONDITIONS
+    return jsonify({"flag_fields": list(methodology_service.FLAG_FIELDS),
+                    "condition_types": list(FACTOR_CONDITIONS),
+                    "levels": methodology_service.LEVELS}), 200
+
+
+def _methodology_call(fn, *args, **kwargs):
+    """Run a methodology_service mutation, turning its validation errors into
+    a clean 400 for the client."""
+    try:
+        return fn(*args, **kwargs)
+    except methodology_service.MethodologyError as exc:
+        raise APIException(str(exc), status_code=400)
+
+
+@api.route("/risk/methodologies", methods=["POST"])
+@permission_required("risk.manage")
+def create_risk_methodology(user):
+    """Start a new DRAFT barème for the org (clones a source, defaults to the
+    org's active methodology or the system default)."""
+    body = request.get_json(silent=True) or {}
+    m = _methodology_call(methodology_service.create_draft, user.organization_id,
+                          name=body.get("name"),
+                          clone_from_id=body.get("clone_from_id"), actor=user)
+    return jsonify(m.serialize(deep=True)), 201
+
+
+@api.route("/risk/methodologies/<int:mid>", methods=["PATCH"])
+@permission_required("risk.manage")
+def rename_risk_methodology(user, mid):
+    body = request.get_json(silent=True) or {}
+    m = _methodology_call(methodology_service.rename_draft, user.organization_id,
+                          mid, body.get("name"), actor=user)
+    return jsonify(m.serialize(deep=True)), 200
+
+
+@api.route("/risk/methodologies/<int:mid>", methods=["DELETE"])
+@permission_required("risk.manage")
+def delete_risk_methodology(user, mid):
+    _methodology_call(methodology_service.delete_draft, user.organization_id,
+                      mid, actor=user)
+    return jsonify({"deleted": True}), 200
+
+
+@api.route("/risk/methodologies/<int:mid>/factors", methods=["POST"])
+@permission_required("risk.manage")
+def add_risk_factor(user, mid):
+    body = request.get_json(silent=True) or {}
+    f = _methodology_call(methodology_service.add_factor, user.organization_id,
+                          mid, body, actor=user)
+    return jsonify(f.serialize()), 201
+
+
+@api.route("/risk/factors/<int:fid>", methods=["PATCH"])
+@permission_required("risk.manage")
+def update_risk_factor(user, fid):
+    body = request.get_json(silent=True) or {}
+    f = _methodology_call(methodology_service.update_factor, user.organization_id,
+                          fid, body, actor=user)
+    return jsonify(f.serialize()), 200
+
+
+@api.route("/risk/factors/<int:fid>", methods=["DELETE"])
+@permission_required("risk.manage")
+def delete_risk_factor(user, fid):
+    _methodology_call(methodology_service.delete_factor, user.organization_id,
+                      fid, actor=user)
+    return jsonify({"deleted": True}), 200
+
+
+@api.route("/risk/methodologies/<int:mid>/thresholds", methods=["PUT"])
+@permission_required("risk.manage")
+def set_risk_thresholds(user, mid):
+    body = request.get_json(silent=True) or {}
+    m = _methodology_call(methodology_service.set_thresholds, user.organization_id,
+                          mid, body.get("thresholds"), actor=user)
+    return jsonify(m.serialize(deep=True)), 200
+
+
+@api.route("/risk/methodologies/<int:mid>/activate", methods=["POST"])
+@permission_required("risk.manage")
+def activate_risk_methodology(user, mid):
+    m = _methodology_call(methodology_service.activate, user.organization_id,
+                          mid, actor=user)
+    return jsonify(m.serialize(deep=True)), 200
 
 
 @api.route("/monitoring/run", methods=["POST"])

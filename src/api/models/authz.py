@@ -59,6 +59,7 @@ PERMISSION_CATALOG = [
     ("risk.calculate", "Recalculate risk"),
     ("risk.override", "Override risk"),
     ("risk.approve", "Approve risk"),
+    ("risk.manage", "Configure risk methodology"),
 
     ("case.view", "View cases"),
     ("case.create", "Create cases"),
@@ -187,7 +188,7 @@ DEFAULT_ROLE_PERMISSIONS = {
 
     "COMPLIANCE_OFFICER": _codes(_ANALYST_BASE, [
         "screening.confirm_match", "kyc.approve", "kyb.edit", "kyb.review",
-        "risk.override", "risk.approve",
+        "risk.override", "risk.approve", "risk.manage",
         "case.assign", "case.escalate", "case.close", "case.approve",
         "document.verify", "audit.view", "customer.delete",
         "sar.approve", "sar.submit",
@@ -199,7 +200,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     "MANAGER": _codes(_ANALYST_BASE, _MANAGER_EXTRA),  # back-compat alias
 
     "MLRO": _codes(_ANALYST_BASE, [
-        "screening.confirm_match", "risk.override", "risk.approve",
+        "screening.confirm_match", "risk.override", "risk.approve", "risk.manage",
         "case.escalate", "case.close", "case.approve",
         "audit.view", "regulatory.view", "customer.delete",
         # The MLRO is the classic SAR filer to the FIU.
