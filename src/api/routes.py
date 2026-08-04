@@ -726,8 +726,18 @@ def add_document(user, cid):
         raise APIException("doc_type is required", status_code=400)
     expiry = source.get("expiry_days")
 
+    # Optional: attach the document to a specific related party (a UBO's
+    # passport). It must be a party of this organisation.
+    party_id = source.get("party_id") or None
+    if party_id is not None:
+        from api.models import Party
+        party = Party.query.get(party_id)
+        if party is None or party.organization_id != user.organization_id:
+            raise APIException("Party not found", status_code=404)
+
     doc = Document(
         customer_id=customer.id,
+        party_id=int(party_id) if party_id else None,
         doc_type=doc_type,
         status=source.get("status", "PENDING"),
         expiry_date=utcnow() + timedelta(days=int(expiry)) if expiry else None,

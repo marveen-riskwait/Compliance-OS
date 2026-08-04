@@ -276,6 +276,14 @@ export const Customer360 = () => {
     } catch (err) { setError(err.message); }
   };
 
+  // Upload a per-party document (a UBO's passport) — tagged to that party.
+  const uploadPartyDoc = async (req, file) => {
+    if (!file) return;
+    setError(null);
+    try { await api.uploadDocument(id, req.doc_type, file, req.party_id); await load(); }
+    catch (err) { setError(err.message); }
+  };
+
   const submitAddress = async (e) => {
     e.preventDefault();
     setError(null);
@@ -1036,6 +1044,45 @@ export const Customer360 = () => {
     </div>
   );
 
+  // Per-party document checklist: a passport / proof of address for each UBO,
+  // tracked individually (from the ownership graph, not one customer-wide item).
+  const partyDocReqs = (completeness?.requirements || []).filter((r) => r.per_party && r.party_id);
+  const partyDocGroups = Object.values(partyDocReqs.reduce((acc, r) => {
+    (acc[r.party_id] ||= { party_id: r.party_id, name: r.party_name, reqs: [] }).reqs.push(r);
+    return acc;
+  }, {}));
+  const partyDocsCard = partyDocGroups.length > 0 && (
+    <div className="co-card">
+      <div className="section-title">Beneficial-owner documents</div>
+      <p className="muted" style={{ fontSize: ".82rem", marginTop: 0 }}>
+        Identity documents are collected for each UBO / controller individually —
+        one line per person, so it is always clear whose document is still missing.
+      </p>
+      {partyDocGroups.map((g) => (
+        <div key={g.party_id} style={{ marginBottom: ".7rem" }}>
+          <div className="title" style={{ fontWeight: 600, marginBottom: ".2rem" }}>
+            <Link to={`/parties/${g.party_id}`}>{g.name || `Party ${g.party_id}`}</Link>
+          </div>
+          {g.reqs.map((r) => (
+            <div className="work-row" key={r.id}>
+              <span className={`dotsev ${REQ_SEV[r.status] || "INFO"}`} />
+              <div className="grow">
+                <div className="meta">{(r.label || "").split(" — ")[0]}</div>
+              </div>
+              <span className={`chip ${REQ_SEV[r.status] || "INFO"}`}>{r.status}</span>
+              {can(store.user, "document.upload") && r.doc_type && (
+                <label className="btn btn-sm btn-outline-secondary" style={{ marginLeft: ".4rem", marginBottom: 0, cursor: "pointer" }}>
+                  <i className="fa-solid fa-upload" /> Upload
+                  <input type="file" hidden onChange={(e) => { uploadPartyDoc(r, e.target.files[0]); e.target.value = ""; }} />
+                </label>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+
   const completenessCard = completeness && (
     <div className="co-card">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: ".4rem" }}>
@@ -1296,6 +1343,9 @@ export const Customer360 = () => {
             canReview={can(store.user, "document.verify")} onChange={load} />
           {companyRegistryCard && (
             <div className="row g-3 mt-0"><div className="col-12">{companyRegistryCard}</div></div>
+          )}
+          {partyDocsCard && (
+            <div className="row g-3 mt-0"><div className="col-12">{partyDocsCard}</div></div>
           )}
           <div className="row g-3 mt-0">
             <div className="col-md-6">{addressesCard}</div>

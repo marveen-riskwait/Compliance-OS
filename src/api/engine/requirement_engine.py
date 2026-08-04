@@ -12,7 +12,7 @@ time-saving feature.
 from datetime import timedelta
 
 from api.models import (
-    db, Customer, Document, ProfileField, RequirementDefinition,
+    db, Customer, Document, Party, ProfileField, RequirementDefinition,
     RequirementInstance, Task, RISK_RANK, utcnow,
 )
 from api.engine import audit
@@ -46,7 +46,15 @@ def applicable_definitions(customer):
     return out
 
 
-def _status_for(customer, d):
+def _relevant_parties(customer):
+    """Parties that each need their own identity documents: the UBOs and the
+    control persons (SMOs) of the customer. Derived from the ownership graph, so
+    the per-party checklist stays in step with who is actually on the file."""
+    from api.engine import ownership
+    return [u["party"] for u in ownership.compute_ubos(customer) if u.get("is_ubo")]
+
+
+def _status_for(customer, d, party_id=None):
     if d.kind == "DATA":
         f = (ProfileField.query
              .filter_by(customer_id=customer.id, field_key=d.data_field).first())
@@ -54,10 +62,12 @@ def _status_for(customer, d):
             return "MISSING"
         return "VERIFIED" if f.verified else "RECEIVED"
     # DOCUMENT — a row without a file is a document we are still waiting for,
-    # not evidence. Counting it would inflate completeness against nothing.
-    docs = (Document.query
-            .filter_by(customer_id=customer.id, doc_type=d.doc_type).all())
-    with_file = [doc for doc in docs if doc.file_url]
+    # not evidence. Counting it would inflate completeness against nothing. For a
+    # per-party requirement only that party's own documents count.
+    q = Document.query.filter_by(customer_id=customer.id, doc_type=d.doc_type)
+    if party_id is not None:
+        q = q.filter_by(party_id=party_id)
+    with_file = [doc for doc in q.all() if doc.file_url]
     if not with_file:
         return "MISSING"
     if any(doc.status == "VERIFIED" for doc in with_file):
@@ -66,30 +76,48 @@ def _status_for(customer, d):
 
 
 def evaluate(customer):
-    """Recompute RequirementInstances for the customer; returns the instances."""
+    """Recompute RequirementInstances for the customer; returns the instances.
+
+    A per-party requirement expands into one instance per UBO/SMO, so a passport
+    is tracked for each of them individually. Instances are keyed by
+    (code, party_id) — a customer-level requirement uses party_id None."""
     applicable = applicable_definitions(customer)
-    applicable_codes = {d.code for d in applicable}
+    parties = _relevant_parties(customer)
 
-    existing = {ri.code: ri for ri in
-                RequirementInstance.query.filter_by(customer_id=customer.id).all()}
-
+    # Target set: (definition, party-or-None). A per-party definition with no
+    # relevant parties yet produces nothing — we can't ask for a UBO's passport
+    # before a UBO is on the file.
+    targets = []
     for d in applicable:
-        status = _status_for(customer, d)
-        ri = existing.get(d.code)
-        if ri is None:
-            ri = RequirementInstance(customer_id=customer.id, definition_id=d.id,
-                                     code=d.code, label=d.label, kind=d.kind)
-            db.session.add(ri)
-        elif ri.status == "WAIVED":
-            continue  # a human waiver stands
-        ri.definition_id = d.id
-        ri.label = d.label
-        ri.kind = d.kind
-        ri.status = status
+        if d.per_party:
+            targets += [(d, p) for p in parties]
+        else:
+            targets.append((d, None))
 
-    # Drop instances that no longer apply (unless explicitly waived).
-    for code, ri in existing.items():
-        if code not in applicable_codes and ri.status != "WAIVED":
+    existing = {(ri.code, ri.party_id): ri for ri in
+                RequirementInstance.query.filter_by(customer_id=customer.id).all()}
+    wanted = set()
+
+    for d, p in targets:
+        pid = p["id"] if p else None
+        key = (d.code, pid)
+        wanted.add(key)
+        ri = existing.get(key)
+        if ri is not None and ri.status == "WAIVED":
+            continue  # a human waiver stands
+        if ri is None:
+            ri = RequirementInstance(customer_id=customer.id, code=d.code,
+                                     kind=d.kind, party_id=pid)
+            db.session.add(ri)
+        ri.definition_id = d.id
+        ri.kind = d.kind
+        ri.label = f"{d.label} — {p['name']}" if p else d.label
+        ri.status = _status_for(customer, d, party_id=pid)
+
+    # Drop instances that no longer apply (unless explicitly waived) — including
+    # a per-party row for someone who is no longer a UBO.
+    for key, ri in existing.items():
+        if key not in wanted and ri.status != "WAIVED":
             db.session.delete(ri)
 
     db.session.commit()
@@ -132,6 +160,28 @@ def _close_satisfied_requests(customer):
     return closed
 
 
+def _enriched(instances):
+    """Serialize instances, adding the doc_type (for a per-party upload) and the
+    party name — the label already carries it, but the id/name pair lets the UI
+    group per-party requirements under each beneficial owner."""
+    def_ids = {ri.definition_id for ri in instances if ri.definition_id}
+    defs = ({d.id: d for d in RequirementDefinition.query
+             .filter(RequirementDefinition.id.in_(def_ids)).all()}
+            if def_ids else {})
+    party_ids = {ri.party_id for ri in instances if ri.party_id}
+    parties = ({p.id: p for p in Party.query.filter(Party.id.in_(party_ids)).all()}
+               if party_ids else {})
+    out = []
+    for ri in instances:
+        data = ri.serialize()
+        d = defs.get(ri.definition_id)
+        data["doc_type"] = d.doc_type if d else None
+        data["per_party"] = bool(d and d.per_party)
+        data["party_name"] = parties[ri.party_id].name if ri.party_id in parties else None
+        out.append(data)
+    return out
+
+
 def summary(customer):
     instances = evaluate(customer)
     total = len(instances) or 1
@@ -142,8 +192,8 @@ def summary(customer):
         "total": len(instances),
         "satisfied": satisfied,
         "missing_count": len(missing),
-        "missing": [ri.serialize() for ri in missing],
-        "requirements": [ri.serialize() for ri in instances],
+        "missing": _enriched(missing),
+        "requirements": _enriched(instances),
     }
 
 

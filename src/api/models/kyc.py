@@ -84,6 +84,9 @@ class RequirementDefinition(db.Model):
 
     data_field: Mapped[str] = mapped_column(String(60), nullable=True)     # ProfileField.field_key for DATA
     doc_type: Mapped[str] = mapped_column(String(60), nullable=True)       # Document.doc_type for DOCUMENT
+    # Required once PER related party (a passport for each UBO/SMO/signatory)
+    # rather than once for the customer. Expanded per party by the engine.
+    per_party: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     def serialize(self):
@@ -93,7 +96,7 @@ class RequirementDefinition(db.Model):
             "applies_legal_form": self.applies_legal_form,
             "min_risk_rank": self.min_risk_rank, "jurisdiction": self.jurisdiction,
             "data_field": self.data_field, "doc_type": self.doc_type,
-            "active": self.active,
+            "per_party": self.per_party, "active": self.active,
         }
 
 
@@ -104,6 +107,8 @@ class RequirementInstance(db.Model):
     id: Mapped[int] = mapped_column(primary_key=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customer.id"), nullable=False)
     definition_id: Mapped[int] = mapped_column(ForeignKey("requirement_definition.id"), nullable=True)
+    # Set when this instance is one party's copy of a per-party requirement.
+    party_id: Mapped[int] = mapped_column(ForeignKey("party.id"), nullable=True)
 
     code: Mapped[str] = mapped_column(String(60), nullable=False)
     label: Mapped[str] = mapped_column(String(160), nullable=True)
@@ -118,7 +123,7 @@ class RequirementInstance(db.Model):
     def serialize(self):
         return {
             "id": self.id, "customer_id": self.customer_id,
-            "definition_id": self.definition_id,
+            "definition_id": self.definition_id, "party_id": self.party_id,
             "code": self.code, "label": self.label, "kind": self.kind,
             "status": self.status, "waived_reason": self.waived_reason,
         }

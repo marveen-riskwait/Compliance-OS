@@ -121,10 +121,11 @@ export const api = {
   customer: (id) => request(`/customers/${id}`),
   screen: (id) => request(`/customers/${id}/screen`, { method: "POST" }),
   addDocument: (id, payload) => request(`/customers/${id}/documents`, { method: "POST", body: payload }),
-  uploadDocument: async (id, docType, file) => {
+  uploadDocument: async (id, docType, file, partyId = null) => {
     const form = new FormData();
     form.append("file", file);
     form.append("doc_type", docType);
+    if (partyId) form.append("party_id", partyId);
     const res = await fetch(`${BASE}/api/customers/${id}/documents`, {
       method: "POST",
       credentials: "include",

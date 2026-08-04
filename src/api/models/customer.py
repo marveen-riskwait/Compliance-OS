@@ -123,6 +123,9 @@ class Document(db.Model):
     id: Mapped[int] = mapped_column(primary_key=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customer.id"), nullable=False)
     customer: Mapped["Customer"] = relationship(back_populates="documents")
+    # Which related party this document belongs to (a UBO's passport). NULL for
+    # documents about the customer as a whole (certificate of incorporation…).
+    party_id: Mapped[int] = mapped_column(ForeignKey("party.id"), nullable=True)
 
     doc_type: Mapped[str] = mapped_column(String(60), nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="PENDING")
@@ -148,6 +151,7 @@ class Document(db.Model):
         return {
             "id": self.id,
             "customer_id": self.customer_id,
+            "party_id": self.party_id,
             "doc_type": self.doc_type,
             "status": self.status,
             "expiry_date": self.expiry_date.isoformat() if self.expiry_date else None,

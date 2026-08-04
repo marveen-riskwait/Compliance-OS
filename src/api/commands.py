@@ -470,19 +470,28 @@ def _seed_risk_methodology():
     db.session.commit()
 
 
+# Requirements collected once PER related party (a passport / proof of address
+# for each UBO / SMO / signatory), not once for the whole customer.
+PER_PARTY_CODES = {"UBO_IDENTITY_DOCS", "UBO_PROOF_OF_ADDRESS"}
+
+
 def _seed_requirement_definitions():
     for code, label, kind, ctype, rank, data_field, doc_type, legal_form in DEFAULT_REQUIREMENTS:
+        per_party = code in PER_PARTY_CODES
         exists = (RequirementDefinition.query
                   .filter_by(code=code, organization_id=None).first())
         if not exists:
             db.session.add(RequirementDefinition(
                 organization_id=None, code=code, label=label, kind=kind,
                 applies_customer_type=ctype, applies_legal_form=legal_form,
-                min_risk_rank=rank, data_field=data_field, doc_type=doc_type))
-        elif exists.applies_legal_form != legal_form:
-            # Idempotent re-scope: a form-targeted requirement whose scope changed
-            # (e.g. shareholder register moved off listed companies) is corrected.
+                min_risk_rank=rank, data_field=data_field, doc_type=doc_type,
+                per_party=per_party))
+        else:
+            # Idempotent re-scope: a requirement whose scope or per-party nature
+            # changed in code (e.g. shareholder register moved off listed
+            # companies) is corrected on the existing system row.
             exists.applies_legal_form = legal_form
+            exists.per_party = per_party
     db.session.commit()
 
 

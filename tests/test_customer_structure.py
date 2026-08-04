@@ -26,8 +26,10 @@ def test_privately_held_gets_the_ubo_checklist(client, tokens, app):
     assert c["legal_form"] == "PRIVATELY_HELD"
     assert c["sdd"] is False
     codes = _codes(app, c["id"])
+    # Customer-level documents (the per-party UBO passports appear once a UBO is
+    # on the file — see test_per_party_documents).
     assert {"COMMERCIAL_REGISTER", "STRUCTURE_CHART", "SIGNATORY_LIST",
-            "UBO_IDENTITY_DOCS", "BENEFICIAL_OWNER_EXTRACT"} <= codes
+            "BENEFICIAL_OWNER_EXTRACT"} <= codes
     assert "PROOF_OF_LISTING" not in codes      # not a listed company
     assert "LPA" not in codes                   # not a partnership
 
