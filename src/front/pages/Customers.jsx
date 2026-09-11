@@ -5,11 +5,12 @@ import useGlobalReducer from "../hooks/useGlobalReducer";
 import { can } from "../permissions/can";
 import { DeleteCustomerModal } from "../components/DeleteCustomerModal";
 import { RowMenu } from "../components/RowMenu";
+import { CountrySelect, ActivitySelect } from "../components/Catalogues";
 import { NameSuggest } from "../components/NameSuggest";
 
 const EMPTY_FORM = {
   name: "", customer_type: "INDIVIDUAL", legal_form: "", country: "",
-  business_activity: "", complex_ownership: false,
+  business_activity: "", business_activity_detail: "", complex_ownership: false,
 };
 
 // Company legal forms — the sub-type drives the KYC document checklist.
@@ -122,14 +123,19 @@ export const Customers = () => {
               </div>
             )}
             <div className="col-md-3">
-              <label className="form-label">Country</label>
-              <input className="form-control" value={form.country}
-                onChange={(e) => setForm({ ...form, country: e.target.value })} />
+              <label className="form-label">Country <span className="text-danger">*</span></label>
+              <CountrySelect value={form.country} required
+                onChange={(code) => setForm({ ...form, country: code })} />
             </div>
             <div className="col-md-6">
-              <label className="form-label">Business activity</label>
-              <input className="form-control" value={form.business_activity} placeholder="e.g. crypto exchange"
-                onChange={(e) => setForm({ ...form, business_activity: e.target.value })} />
+              <label className="form-label">
+                Business activity{form.customer_type === "COMPANY" && <span className="text-danger"> *</span>}
+              </label>
+              <ActivitySelect value={form.business_activity} required={form.customer_type === "COMPANY"}
+                onChange={(code) => setForm({ ...form, business_activity: code })} />
+              <input className="form-control form-control-sm mt-1" value={form.business_activity_detail}
+                placeholder="Describe the activity in a few words (optional)"
+                onChange={(e) => setForm({ ...form, business_activity_detail: e.target.value })} />
             </div>
             <div className="col-md-6 d-flex align-items-end">
               <div className="form-check">
@@ -157,8 +163,8 @@ export const Customers = () => {
             <div className="grow">
               <div className="title"><Link to={`/customers/${cu.id}`}>{cu.name}</Link></div>
               <div className="meta">
-                {cu.customer_type} · {cu.country || "—"}
-                {cu.business_activity ? ` · ${cu.business_activity}` : ""}
+                {cu.customer_type} · {cu.country_name || cu.country || "—"}
+                {cu.business_activity ? ` · ${cu.business_activity_label || cu.business_activity}` : ""}
                 {cu.is_pep ? " · PEP" : ""}
                 {cu.has_sanctions_match ? " · SANCTIONS" : ""}
               </div>

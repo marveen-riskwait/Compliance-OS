@@ -40,7 +40,7 @@ def test_invited_users_are_verified_without_a_second_email(client, tokens, app):
     """Receiving the invitation already proved they control the address."""
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"name": "Verified By Invite Co",
+                      json={"country": "LU", "name": "Verified By Invite Co",
                             "customer_type": "COMPANY"}).get_json()["id"]
     inv = client.post(f"/api/customers/{cid}/portal-access", headers=auth(to),
                       json={"email": "invited@example.com"}).get_json()

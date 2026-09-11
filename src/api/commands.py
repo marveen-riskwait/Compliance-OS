@@ -238,14 +238,14 @@ DEFAULT_RULES = [
 
 SAMPLE_CUSTOMERS = [
     {"name": "Marie Dupont", "customer_type": "INDIVIDUAL",
-     "country": "Luxembourg", "business_activity": None},
+     "country": "LU", "business_activity": None},
     {"name": "John Smith", "customer_type": "INDIVIDUAL",
-     "country": "United Kingdom", "business_activity": None},  # sanctions hit
+     "country": "GB", "business_activity": None},  # sanctions hit
     {"name": "Alpha Crypto Ltd", "customer_type": "COMPANY",
-     "country": "Panama", "business_activity": "crypto exchange",
+     "country": "PA", "business_activity": "VASP_CRYPTO",
      "complex_ownership": True},
     {"name": "Sergei Ivanov", "customer_type": "INDIVIDUAL",
-     "country": "Russia", "business_activity": None},  # sanctions + PEP hit
+     "country": "RU", "business_activity": None},  # sanctions + PEP hit
 ]
 
 
@@ -439,8 +439,8 @@ def _seed_workflows():
 def _seed_risk_methodology():
     """Default system risk methodology v1 — mirrors the legacy hardcoded model,
     now data-driven and editable."""
-    from api.models import (RiskMethodology, RiskFactor, RiskThreshold,
-                            HIGH_RISK_ACTIVITIES)
+    from api.models import RiskMethodology, RiskFactor, RiskThreshold
+    from api.catalogues.activities import HIGH_RISK_CODES
     if RiskMethodology.query.filter_by(organization_id=None, version="v1").first():
         return
     meth = RiskMethodology(organization_id=None, version="v1",
@@ -457,7 +457,7 @@ def _seed_risk_methodology():
         # official-list factors (FATF Call for Action / EU high-risk / FATF
         # Increased Monitoring) so the score can be traced to a published list.
         ("BUSINESS", "High-risk business activity", 25, "ACTIVITY_IN",
-         {"values": sorted(HIGH_RISK_ACTIVITIES)}),
+         {"values": sorted(HIGH_RISK_CODES)}),
     ]
     for code, label, impact, ctype, cval in factors:
         db.session.add(RiskFactor(methodology_id=meth.id, code=code, label=label,
@@ -602,13 +602,13 @@ def _seed_ownership(org):
         return p
 
     root = party(LegalEntity, "Alpha Crypto Ltd", customer_id=alpha.id,
-                 business_activity="crypto exchange", country_of_incorporation="Panama")
+                 business_activity="VASP_CRYPTO", country_of_incorporation="PA")
     alpha.root_party_id = root.id
-    beta = party(LegalEntity, "Beta Holdings", country_of_incorporation="Luxembourg")
-    john = party(Person, "John Smith", nationality="United Kingdom",
-                 country_of_residence="United Kingdom")
-    jane = party(Person, "Jane Doe", nationality="France",
-                 country_of_residence="Luxembourg")
+    beta = party(LegalEntity, "Beta Holdings", country_of_incorporation="LU")
+    john = party(Person, "John Smith", nationality="GB",
+                 country_of_residence="GB")
+    jane = party(Person, "Jane Doe", nationality="FR",
+                 country_of_residence="LU")
 
     def edge(owner, owned, pct, rtype="SHAREHOLDER"):
         db.session.add(OwnershipRelationship(
@@ -622,6 +622,19 @@ def _seed_ownership(org):
 
 
 def setup_commands(app):
+
+    @app.cli.command("recode-catalogues")
+    def recode_catalogues():
+        """Recode free-text countries / activities to catalogue codes (idempotent)."""
+        from api.catalogues.recode import recode_all
+        with db.engine.begin() as conn:
+            out = recode_all(conn)
+        print(f"recoded {out['recoded']} value(s)")
+        for where, value in out["left"][:40]:
+            print(f"  left as typed: {where} = {value!r}")
+        if len(out["left"]) > 40:
+            print(f"  … and {len(out['left']) - 40} more")
+
 
     @app.cli.command("mail-test")
     @click.argument("recipient")

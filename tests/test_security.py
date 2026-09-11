@@ -31,7 +31,7 @@ def test_register_enforces_the_policy(client):
 def test_invitation_acceptance_enforces_the_policy(client, tokens, app):
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"name": "Policy Co", "customer_type": "COMPANY"}
+                      json={"country": "LU", "name": "Policy Co", "customer_type": "COMPANY"}
                       ).get_json()["id"]
     created = client.post(f"/api/customers/{cid}/portal-access", headers=auth(to),
                           json={"email": "weakclient@example.com"}).get_json()

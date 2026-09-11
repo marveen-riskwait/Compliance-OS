@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { CountrySelect, ActivitySelect } from "../components/Catalogues";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../services/api";
 import { FilePreview } from "../components/FilePreview";
@@ -49,6 +50,10 @@ const Field = ({ spec, value, onChange }) => {
         ))}
       </div>
     );
+  } else if (spec.type === "country") {
+    control = <CountrySelect id={common.id} value={v} onChange={(code) => onChange(spec.key, code)} />;
+  } else if (spec.type === "activity") {
+    control = <ActivitySelect id={common.id} value={v} onChange={(code) => onChange(spec.key, code)} />;
   } else {
     const type = spec.type === "date" ? "date"
       : spec.type === "number" ? "number" : "text";

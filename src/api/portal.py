@@ -20,6 +20,7 @@ conversation with the firm. What they never get: the assessment.
 from flask import Blueprint, request, jsonify
 from flask_cors import CORS
 
+from api.catalogues import normalise_form_value
 from api.models import db, Customer, Document, ProfileField, User, utcnow
 from api.utils import APIException
 from api.auth import login_required
@@ -194,6 +195,7 @@ def portal_save_form(_user):
     for key, value in answers.items():
         if key not in index:
             continue
+        value = normalise_form_value(key, index[key], value)
         if kyc_service.set_field(customer, key, value, source="portal",
                                  actor=user):
             saved += 1

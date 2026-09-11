@@ -27,6 +27,9 @@ DETECTORS = ("LARGE_AMOUNT", "HIGH_RISK_COUNTRY", "STRUCTURING",
              "ADVERSE_MEDIA_COUNTERPARTY")
 
 
+from api.catalogues.countries import country_name  # noqa: E402
+
+
 class Transaction(db.Model):
     """One booked movement on a customer relationship.
 
@@ -78,6 +81,7 @@ class Transaction(db.Model):
             "method": self.method,
             "counterparty_name": self.counterparty_name,
             "counterparty_country": self.counterparty_country,
+            "counterparty_country_name": country_name(self.counterparty_country),
             "reference": self.reference,
             "booked_at": self.booked_at.isoformat() if self.booked_at else None,
             "flags": self.flags or [],

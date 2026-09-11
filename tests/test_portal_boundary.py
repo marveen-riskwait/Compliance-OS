@@ -433,7 +433,7 @@ def test_portal_invite_creates_a_token_bound_account(client, tokens, app):
     customer by the token — never by anything the form claims."""
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"name": "Invited Client Co",
+                      json={"country": "LU", "name": "Invited Client Co",
                             "customer_type": "COMPANY"}).get_json()["id"]
 
     r = client.post(f"/api/customers/{cid}/portal-access", headers=auth(to),
@@ -465,7 +465,7 @@ def test_reinviting_replaces_the_previous_token(client, tokens):
     """A mis-sent link must always be killable by sending a fresh one."""
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"name": "Reinvited Co",
+                      json={"country": "LU", "name": "Reinvited Co",
                             "customer_type": "COMPANY"}).get_json()["id"]
     first = client.post(f"/api/customers/{cid}/portal-access", headers=auth(to),
                         json={"email": "again@example.com"}).get_json()
@@ -486,7 +486,7 @@ def test_reinviting_replaces_the_previous_token(client, tokens):
 def test_revoked_invite_cannot_register(client, tokens):
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"name": "Revoked Invite Co",
+                      json={"country": "LU", "name": "Revoked Invite Co",
                             "customer_type": "COMPANY"}).get_json()["id"]
     created = client.post(f"/api/customers/{cid}/portal-access", headers=auth(to),
                           json={"email": "revoked@example.com"}).get_json()

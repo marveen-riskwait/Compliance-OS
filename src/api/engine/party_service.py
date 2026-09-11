@@ -8,6 +8,7 @@ consultant is notified — the document's continuous-compliance philosophy.
 import re
 from difflib import SequenceMatcher
 
+from api.catalogues.countries import to_iso2, normalize_or_keep
 from api.models import (
     db, Person, LegalEntity, Trust, Party, Address, OwnershipRelationship,
     Customer, utcnow,
@@ -40,7 +41,7 @@ def find_party_candidates(organization_id, *, name, kind="PERSON", dob=None,
     at demo scale; a normalized-name index is the production refinement."""
     exclude = set(exclude_ids or [])
     reg = (registration_number or "").strip().lower()
-    nat = (nationality or "").strip().lower()
+    nat = to_iso2(nationality) or (nationality or "").strip().lower()
     dob10 = str(dob)[:10] if dob else None
     out = []
     q = Party.query.filter_by(organization_id=organization_id)
@@ -54,7 +55,7 @@ def find_party_candidates(organization_id, *, name, kind="PERSON", dob=None,
             score = max(score, 0.98)        # same registry number = strong
         if dob10 and p.date_of_birth and dob10 == p.date_of_birth.isoformat()[:10]:
             score = min(1.0, score + 0.15)
-        if nat and p.nationality and nat == p.nationality.strip().lower():
+        if nat and p.nationality and nat == (to_iso2(p.nationality) or p.nationality.strip().lower()):
             score = min(1.0, score + 0.05)
         if score >= min_score:
             out.append((p, int(round(score * 100))))
@@ -188,9 +189,9 @@ def add_related_party(customer, *, owner_name=None, owner_kind="PERSON",
         owner = cls(
             organization_id=customer.organization_id,
             name=owner_name,
-            nationality=nationality,
-            country_of_residence=country if cls is Person else None,
-            country_of_incorporation=country if cls is LegalEntity else None,
+            nationality=normalize_or_keep(nationality),
+            country_of_residence=normalize_or_keep(country) if cls is Person else None,
+            country_of_incorporation=normalize_or_keep(country) if cls is LegalEntity else None,
         )
         db.session.add(owner)
         db.session.flush()

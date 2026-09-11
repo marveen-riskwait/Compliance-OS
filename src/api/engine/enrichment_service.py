@@ -13,6 +13,7 @@ For each applicable source (registries, LEI, adverse media…):
 Designed to run out-of-band (Celery) at scale; the manual endpoint runs it
 inline so analysts get an immediate report.
 """
+from api.catalogues import normalise_form_value
 from api.models import db, ProfileField, Party, OwnershipRelationship
 from api.engine import audit, kyc_service, party_service, requirement_engine
 from api.engine.events import emit_event
@@ -41,6 +42,7 @@ def _apply_fields(customer, source_name, fields, actor, report):
         value = (str(obs.get("value")) if obs.get("value") is not None else "").strip()
         if not value:
             continue
+        value = normalise_form_value(key, None, value)
         existing = current.get(key)
         if existing and (existing.value or "").strip():
             if (existing.value or "").strip().lower() == value.lower():

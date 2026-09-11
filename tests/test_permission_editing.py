@@ -20,14 +20,14 @@ def test_role_toggle_changes_access_immediately(client, tokens, app):
     assert "customer.create" not in r.get_json()["permissions"]
 
     denied = client.post("/api/customers", headers=auth(analyst),
-                         json={"name": "Blocked Co", "customer_type": "COMPANY"})
+                         json={"country": "LU", "name": "Blocked Co", "customer_type": "COMPANY"})
     assert denied.status_code == 403
 
     r = client.post(f"/api/roles/{rid}/permissions", headers=auth(admin),
                     json={"code": "customer.create", "enabled": True})
     assert "customer.create" in r.get_json()["permissions"]
     allowed = client.post("/api/customers", headers=auth(analyst),
-                          json={"name": "Allowed Co", "customer_type": "COMPANY"})
+                          json={"country": "LU", "name": "Allowed Co", "customer_type": "COMPANY"})
     assert allowed.status_code == 201
 
 

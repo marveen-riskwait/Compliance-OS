@@ -28,6 +28,13 @@ country membership is refreshed, the weights stay as configured.
 """
 from api.models import db, RiskMethodology, RiskFactor
 from api.integrations import countryrisk
+from api.catalogues.countries import to_iso2, country_name
+
+# An official list applies wherever the country appears on the file: the
+# customer's country, but also a person's residence / nationality and a
+# company's incorporation / principal place of business.
+GEO_FIELDS = ["country", "residence", "nationality", "incorporation",
+              "principal_place_of_business"]
 
 # code -> (dataset, label, default impact)
 GEOGRAPHY_FACTORS = {
@@ -71,7 +78,8 @@ def sync(organization_id=None, prefer_live=True, retire_legacy=True,
                                 condition_type="COUNTRY_IN")
             db.session.add(factor)
         # Membership is refreshed; the impact stays whatever it was configured to.
-        factor.condition_value = {"values": sorted(data["countries"]),
+        factor.condition_value = {"values": sorted({to_iso2(c) or c for c in data["countries"]}),
+                                  "fields": GEO_FIELDS,
                                   "as_of": data["as_of"],
                                   "source_url": data["source_url"]}
         report.append({"code": code, "label": label,
@@ -87,7 +95,8 @@ def sync(organization_id=None, prefer_live=True, retire_legacy=True,
         own = RiskFactor(methodology_id=methodology.id, code=INSTITUTION_CODE,
                          label=INSTITUTION_LABEL, impact=INSTITUTION_IMPACT,
                          condition_type="COUNTRY_IN",
-                         condition_value={"values": list(institution_countries or [])})
+                         condition_value={"values": sorted({to_iso2(c) or c for c in (institution_countries or [])}),
+                                          "fields": GEO_FIELDS})
         db.session.add(own)
     report.append({"code": INSTITUTION_CODE, "label": INSTITUTION_LABEL,
                    "countries": len(own.condition_value.get("values", [])),
@@ -108,7 +117,8 @@ def status(prefer_live=False, organization_id=None):
     lists = countryrisk.all_lists(prefer_live=prefer_live)
     rows = [{"code": code, "dataset": dataset, "label": lists[dataset]["label"],
              "impact": default_impact,
-             "countries": sorted(lists[dataset]["countries"]),
+             "countries": sorted({to_iso2(c) or c for c in lists[dataset]["countries"]}),
+             "country_names": sorted(country_name(to_iso2(c) or c) for c in lists[dataset]["countries"]),
              "as_of": lists[dataset]["as_of"],
              "stale": lists[dataset]["stale"],
              "source_url": lists[dataset]["source_url"]}

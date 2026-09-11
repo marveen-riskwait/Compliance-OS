@@ -9,6 +9,7 @@ import { RowMenu } from "../components/RowMenu";
 import { DocumentReview } from "../components/DocumentReview";
 import { PortalAccess } from "../components/PortalAccess";
 import { MatchDetails } from "../components/MatchDetails";
+import { CountrySelect } from "../components/Catalogues";
 
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString() : "—");
 
@@ -957,7 +958,7 @@ export const Customer360 = () => {
             <div className="title" style={a.is_current ? {} : { textDecoration: "line-through", opacity: 0.6 }}>
               {a.line1}
               {(a.postal_code || a.city) ? `, ${[a.postal_code, a.city].filter(Boolean).join(" ")}` : ""}
-              {a.country ? `, ${a.country}` : ""}
+              {a.country ? `, ${a.country_name || a.country}` : ""}
             </div>
             <div className="meta">
               {a.address_type} · {a.is_current ? "current" : `until ${fmt(a.valid_to)}`}
@@ -985,8 +986,8 @@ export const Customer360 = () => {
               value={addrForm.postal_code} onChange={(e) => setAddrForm({ ...addrForm, postal_code: e.target.value })} />
           </div>
           <div className="col-8 col-md-3">
-            <input className="form-control form-control-sm" placeholder="Country"
-              value={addrForm.country} onChange={(e) => setAddrForm({ ...addrForm, country: e.target.value })} />
+            <CountrySelect size="sm" placeholder="Country" value={addrForm.country}
+              onChange={(code) => setAddrForm({ ...addrForm, country: code })} />
           </div>
           <div className="col-4 col-md-2">
             <button className="btn btn-sm btn-co w-100">Add</button>
@@ -1203,8 +1204,8 @@ export const Customer360 = () => {
               value={txForm.counterparty_name} onChange={(e) => setTxForm({ ...txForm, counterparty_name: e.target.value })} />
           </div>
           <div className="col-4 col-md-2">
-            <input className="form-control form-control-sm" placeholder="Country"
-              value={txForm.counterparty_country} onChange={(e) => setTxForm({ ...txForm, counterparty_country: e.target.value })} />
+            <CountrySelect size="sm" placeholder="Country" value={txForm.counterparty_country}
+              onChange={(code) => setTxForm({ ...txForm, counterparty_country: code })} />
           </div>
           <div className="col-2 col-md-1">
             <button className="btn btn-sm btn-co w-100" disabled={txBusy}>Add</button>
@@ -1225,8 +1226,9 @@ export const Customer360 = () => {
             <span>
               {customer.customer_type}
               {customer.legal_form ? ` · ${LEGAL_FORM_LABELS[customer.legal_form] || customer.legal_form}` : ""}
-              {" · "}{customer.country || "—"}
-              {customer.business_activity ? ` · ${customer.business_activity}` : ""}
+              {" · "}{customer.country_name || customer.country || "—"}
+              {customer.business_activity ? ` · ${customer.business_activity_label || customer.business_activity}` : ""}
+              {customer.business_activity_detail ? ` (${customer.business_activity_detail})` : ""}
             </span>
             {customer.sdd && (
               <span className="chip INFO" title="Listed on a regulated market with free float — simplified due diligence applies">

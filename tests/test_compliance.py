@@ -122,7 +122,7 @@ def test_requirements_exist_from_the_moment_a_customer_does(client, tokens):
 
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"name": "Fresh Materialised Co",
+                      json={"country": "LU", "name": "Fresh Materialised Co",
                             "customer_type": "COMPANY"}).get_json()["id"]
     assert RequirementInstance.query.filter_by(customer_id=cid).count() > 0
 
@@ -134,7 +134,7 @@ def test_information_request_task_closes_when_the_item_arrives(client, tokens):
 
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"name": "Chased Client", "customer_type": "INDIVIDUAL"}
+                      json={"country": "LU", "name": "Chased Client", "customer_type": "INDIVIDUAL"}
                       ).get_json()["id"]
     client.post(f"/api/customers/{cid}/request-info", headers=auth(to))
     chase = (Task.query.filter_by(customer_id=cid, task_type="INFORMATION_REQUEST")
@@ -161,7 +161,7 @@ def test_many_findings_one_investigation(client, tokens, app):
 
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"name": "Common Name Person",
+                      json={"country": "LU", "name": "Common Name Person",
                             "customer_type": "INDIVIDUAL"}).get_json()["id"]
 
     with app.app_context():

@@ -753,7 +753,9 @@ const AddFactorForm = ({ mid, options, reload, onError }) => {
           <>
             <label className="form-label">Values (comma-sep.)</label>
             <input className="form-control form-control-sm" value={f.values}
-              onChange={(e) => setF({ ...f, values: e.target.value })} placeholder="Iran, Panama" />
+              onChange={(e) => setF({ ...f, values: e.target.value })}
+              placeholder={f.condition_type === "COUNTRY_IN" ? "IR, Panama, North Korea — codes or names" : "VASP_CRYPTO, casino, money service business"} />
+            <div className="form-text">Stored as catalogue codes (ISO country / activity category); names are accepted.</div>
           </>
         )}
       </div>

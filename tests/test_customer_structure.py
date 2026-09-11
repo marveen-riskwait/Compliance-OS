@@ -75,7 +75,7 @@ def test_legal_form_is_company_only(client, tokens):
     tok = tokens["officer@test.io"]
     # Ignored on a non-company at creation.
     ind = client.post("/api/customers", headers=auth(tok),
-                      json={"name": "Jane Doe", "customer_type": "INDIVIDUAL",
+                      json={"country": "LU", "name": "Jane Doe", "customer_type": "INDIVIDUAL",
                             "legal_form": "LISTED"}).get_json()
     assert ind["legal_form"] is None and ind["sdd"] is False
     # And rejected on the classify endpoint.

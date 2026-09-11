@@ -84,7 +84,7 @@ export const CaseDetail = () => {
                 <div className="col-6">
                   <div className="muted" style={{ fontSize: ".78rem" }}>Customer</div>
                   <div><b>{customer.name}</b></div>
-                  <div className="muted" style={{ fontSize: ".85rem" }}>Country: {customer.country || "—"}</div>
+                  <div className="muted" style={{ fontSize: ".85rem" }}>Country: {customer.country_name || customer.country || "—"}</div>
                 </div>
                 <div className="col-6">
                   <div className="muted" style={{ fontSize: ".78rem" }}>Sanctions record</div>

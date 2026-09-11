@@ -20,8 +20,14 @@ COMPANY_LEGAL_FORMS = ("PRIVATELY_HELD", "PARTNERSHIP", "LISTED")
 SDD_LEGAL_FORMS = ("LISTED",)
 RISK_LEVELS = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
 
-HIGH_RISK_COUNTRIES = {"Iran", "North Korea", "Syria", "Myanmar", "Russia", "Panama"}
-HIGH_RISK_ACTIVITIES = {"crypto exchange", "casino", "money service business", "arms trade"}
+# ISO 3166-1 alpha-2 codes (see api.catalogues). Legacy fallback only.
+HIGH_RISK_COUNTRIES = {"IR", "KP", "SY", "MM", "RU", "PA"}
+# Activity catalogue codes (see api.catalogues.activities). Legacy fallback only.
+HIGH_RISK_ACTIVITIES = {"VASP_CRYPTO", "GAMBLING", "MSB_PAYMENTS", "ARMS_DEFENCE"}
+
+
+from api.catalogues.countries import country_name  # noqa: E402
+from api.catalogues.activities import activity_label  # noqa: E402
 
 
 class Customer(db.Model):
@@ -38,6 +44,8 @@ class Customer(db.Model):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     country: Mapped[str] = mapped_column(String(80), nullable=True)
     business_activity: Mapped[str] = mapped_column(String(200), nullable=True)
+    # Free text that accompanies the catalogue code (what the client actually does).
+    business_activity_detail: Mapped[str] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="ONBOARDING")
 
     risk_score: Mapped[int] = mapped_column(Integer, default=0)
@@ -94,7 +102,10 @@ class Customer(db.Model):
             "sdd": self.sdd,
             "name": self.name,
             "country": self.country,
+            "country_name": country_name(self.country),
             "business_activity": self.business_activity,
+            "business_activity_label": activity_label(self.business_activity),
+            "business_activity_detail": self.business_activity_detail,
             "status": self.status,
             "risk_score": self.risk_score,
             "risk_level": self.risk_level,

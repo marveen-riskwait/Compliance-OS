@@ -33,6 +33,8 @@ from api.auth import (
     hash_password, verify_password, make_token, current_user,
     login_required, role_required, permission_required, has_permission,
 )
+from api.catalogues import (to_iso2, to_activity_code, catalogues,
+                            activity_from_nace, normalise_form_value)
 from api.engine import (risk_engine, audit, ownership, data_scope, workload,
                         sla, assignment, party_service, requirement_engine,
                         kyc_service, provider_service, alert_service,
@@ -564,6 +566,83 @@ def list_customers(user):
     return jsonify([c.serialize() for c in customers]), 200
 
 
+def _country_or_400(value, *, required=False, field="country"):
+    """ISO alpha-2 code for a code / name / alias, else 400. Empty is allowed
+    unless required."""
+    if value is None or str(value).strip() == "":
+        if required:
+            raise APIException(f"{field} is required", status_code=400)
+        return None
+    code = to_iso2(value)
+    if not code:
+        raise APIException(
+            f"{field} must be an ISO 3166-1 alpha-2 code or a recognised country "
+            f"name (got {str(value)[:40]!r})", status_code=400)
+    return code
+
+
+def _activity_from_body(body):
+    """(catalogue code, free-text detail). Free text that fits no category is
+    kept as the detail under OTHER, so nothing typed is lost."""
+    raw = (body.get("business_activity") or "").strip()
+    detail = (body.get("business_activity_detail") or "").strip() or None
+    if not raw:
+        return None, detail
+    code = to_activity_code(raw)
+    if code:
+        return code, detail
+    return "OTHER", detail or raw
+
+
+@api.route("/catalogues", methods=["GET"])
+@login_required
+def get_catalogues(user):
+    """Reference lists the forms are built from: countries (ISO alpha-2) and
+    the closed business-activity catalogue with its NACE and risk mapping."""
+    return jsonify(catalogues()), 200
+
+
+@api.route("/customers/<int:cid>", methods=["PATCH"])
+@permission_required("customer.update")
+def update_customer(user, cid):
+    """Edit the static facts a file was created with. Country and activity feed
+    the risk score, so a change recomputes it and re-evaluates requirements."""
+    customer = _get_customer_for(user, cid)
+    body = request.get_json(silent=True) or {}
+    changes = []
+    if "country" in body:
+        new = _country_or_400(body.get("country"), required=True)
+        if new != customer.country:
+            changes.append(("country", customer.country, new))
+            customer.country = new
+    if "business_activity" in body or "business_activity_detail" in body:
+        merged = {"business_activity": body.get("business_activity", customer.business_activity),
+                  "business_activity_detail": body.get("business_activity_detail",
+                                                       customer.business_activity_detail)}
+        code, detail = _activity_from_body(merged)
+        if code != customer.business_activity:
+            changes.append(("business_activity", customer.business_activity, code))
+            customer.business_activity = code
+        if detail != customer.business_activity_detail:
+            changes.append(("business_activity_detail", customer.business_activity_detail, detail))
+            customer.business_activity_detail = detail
+    if "complex_ownership" in body:
+        new = bool(body.get("complex_ownership"))
+        if new != customer.complex_ownership:
+            changes.append(("complex_ownership", customer.complex_ownership, new))
+            customer.complex_ownership = new
+    if not changes:
+        return jsonify(customer.serialize()), 200
+    for field, old, new in changes:
+        audit.record("CUSTOMER_UPDATED", "customer", customer.id, actor=user,
+                     old_value=f"{field}={old}", new_value=f"{field}={new}",
+                     reason=(body.get("reason") or "Customer file edited"))
+    db.session.commit()
+    risk_engine.recompute(customer, actor=user, reason="Customer facts changed")
+    requirement_engine.evaluate(customer)
+    return jsonify(customer.serialize()), 200
+
+
 @api.route("/customers", methods=["POST"])
 @permission_required("customer.create")
 def create_customer(user):
@@ -571,22 +650,27 @@ def create_customer(user):
     name = (body.get("name") or "").strip()
     if not name:
         raise APIException("name is required", status_code=400)
-    ctype = body.get("customer_type", "INDIVIDUAL")
+    ctype = body.get("customer_type") or "INDIVIDUAL"
     if ctype not in CUSTOMER_TYPES:
-        ctype = "INDIVIDUAL"
+        raise APIException(f"customer_type must be one of {list(CUSTOMER_TYPES)}",
+                           status_code=400)
     # Legal form only applies to companies and must be a known one; it selects
     # the applicable document checklist (and SDD for a listed company).
     legal_form = body.get("legal_form")
     if ctype != "COMPANY" or legal_form not in COMPANY_LEGAL_FORMS:
         legal_form = None
-
+    # Country is mandatory and stored as an ISO 3166-1 alpha-2 code: geography
+    # risk, sanctions lists and public registries all join on it.
+    country = _country_or_400(body.get("country"), required=True)
+    activity, activity_detail = _activity_from_body(body)
     customer = Customer(
         organization_id=user.organization_id,
         customer_type=ctype,
         legal_form=legal_form,
         name=name,
-        country=body.get("country"),
-        business_activity=body.get("business_activity"),
+        country=country,
+        business_activity=activity,
+        business_activity_detail=activity_detail,
         complex_ownership=bool(body.get("complex_ownership", False)),
         status="ONBOARDING",
     )
@@ -997,7 +1081,7 @@ def create_address(user, cid):
     addr = party_service.add_address(
         customer,
         line1=line1, line2=body.get("line2"), city=body.get("city"),
-        postal_code=body.get("postal_code"), country=body.get("country"),
+        postal_code=body.get("postal_code"), country=_country_or_400(body.get("country")),
         address_type=body.get("address_type", "RESIDENTIAL"),
         actor=user,
     )
@@ -3146,12 +3230,22 @@ def save_kyc_form(user, cid):
         if spec is None:
             continue  # only schema fields are accepted
         value = ("" if value is None else str(value)).strip()
+        value = normalise_form_value(key, spec, value)
         if value == (current.get(key) or ""):
             continue  # unchanged — don't reset verification
         kyc_service.set_field(customer, key, value,
                               category=spec.get("category"),
                               source="kyc_form", actor=user)
         saved += 1
+
+    # A NACE code pre-selects the activity category when none was given.
+    nace = str(values.get("nace_code") or "").strip()
+    if nace and not str(values.get("business_activity") or current.get("business_activity") or "").strip():
+        derived = activity_from_nace(nace)
+        if derived:
+            kyc_service.set_field(customer, "business_activity", derived,
+                                  category="BUSINESS", source="kyc_form", actor=user)
+            saved += 1
 
     if saved:
         kyc_service.sync_address_from_form(customer, actor=user)

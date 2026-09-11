@@ -16,6 +16,11 @@ from api.engine import audit, risk_engine
 
 LEVELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]      # fixed severity ladder
 # Customer boolean fields a FLAG factor may test.
+from api.catalogues import to_iso2, to_activity_code  # noqa: E402
+
+# Which country on the file a COUNTRY_IN factor may look at (default: "country").
+COUNTRY_FIELDS = ("country", "residence", "nationality", "incorporation", "principal_place_of_business")
+
 FLAG_FIELDS = ("is_pep", "has_sanctions_match", "has_adverse_media",
                "complex_ownership")
 
@@ -127,10 +132,19 @@ def _clean_factor(code, label, impact, condition_type, condition_value):
                 "A FLAG factor must test one of: " + ", ".join(FLAG_FIELDS))
         cv = {"field": field}
     else:                                   # COUNTRY_IN / ACTIVITY_IN
-        values = [str(v).strip() for v in (cv.get("values") or []) if str(v).strip()]
-        if not values:
+        raw = [str(v).strip() for v in (cv.get("values") or []) if str(v).strip()]
+        if not raw:
             raise MethodologyError("Provide at least one value for this factor")
+        # Store catalogue codes so "Iran", "IR" and "Islamic Republic of Iran"
+        # are one value; unknown entries are kept verbatim rather than dropped.
+        if condition_type == "COUNTRY_IN":
+            values = sorted({to_iso2(v) or v for v in raw})
+        else:
+            values = sorted({to_activity_code(v) or v for v in raw})
         cv = {"values": values}
+        fields = [f for f in (condition_value or {}).get("fields") or [] if f in COUNTRY_FIELDS]
+        if condition_type == "COUNTRY_IN" and fields:
+            cv["fields"] = fields
     return code, label.strip()[:160], impact, condition_type, cv
 
 

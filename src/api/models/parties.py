@@ -32,6 +32,10 @@ ADDRESS_TYPES = ("RESIDENTIAL", "REGISTERED", "BUSINESS", "MAILING")
 UBO_THRESHOLD = 25.0
 
 
+from api.catalogues.countries import country_name  # noqa: E402
+from api.catalogues.activities import activity_label  # noqa: E402
+
+
 class Party(db.Model):
     __tablename__ = "party"
 
@@ -77,11 +81,15 @@ class Party(db.Model):
             "last_name": self.last_name,
             "date_of_birth": self.date_of_birth.isoformat() if self.date_of_birth else None,
             "nationality": self.nationality,
+            "nationality_name": country_name(self.nationality),
             "country_of_residence": self.country_of_residence,
+            "country_of_residence_name": country_name(self.country_of_residence),
             "registration_number": self.registration_number,
             "country_of_incorporation": self.country_of_incorporation,
+            "country_of_incorporation_name": country_name(self.country_of_incorporation),
             "legal_form": self.legal_form,
             "business_activity": self.business_activity,
+            "business_activity_label": activity_label(self.business_activity),
             "is_pep": self.is_pep,
             "pep_type": self.pep_type,
             "customer_id": self.customer_id,
@@ -137,6 +145,7 @@ class Address(db.Model):
             "city": self.city,
             "postal_code": self.postal_code,
             "country": self.country,
+            "country_name": country_name(self.country),
             "is_current": self.is_current,
             "valid_from": self.valid_from.isoformat() if self.valid_from else None,
             "valid_to": self.valid_to.isoformat() if self.valid_to else None,

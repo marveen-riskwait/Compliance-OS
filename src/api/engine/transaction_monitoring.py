@@ -14,6 +14,7 @@ same data-driven list the risk engine uses, never a second hard-coded copy.
 import os
 from datetime import timedelta
 
+from api.catalogues.countries import to_iso2, normalize_or_keep
 from api.models import db, Transaction, RiskFactor, utcnow
 from api.engine import audit
 from api.engine.events import emit_event
@@ -101,7 +102,9 @@ def _high_risk_countries(organization_id):
     countries = set()
     for f in factors:
         countries.update((f.condition_value or {}).get("values", []))
-    return {c.strip().lower() for c in countries}
+    # Catalogue codes when recognised; the raw lower-cased text otherwise, so a
+    # legacy free-text list still matches legacy free-text transactions.
+    return {to_iso2(c) or c.strip().lower() for c in countries}
 
 
 def _window(customer_id, since, direction=None):
@@ -127,7 +130,8 @@ def _detect(tx, customer):
 
     # 2. High-risk counterparty country.
     hrc = _high_risk_countries(customer.organization_id)
-    if tx.counterparty_country and tx.counterparty_country.strip().lower() in hrc:
+    cp = (to_iso2(tx.counterparty_country) or (tx.counterparty_country or "").strip().lower())
+    if cp and cp in hrc:
         fired.append({"code": "HIGH_RISK_COUNTRY", "severity": "HIGH",
                       "detail": f"Counterparty in high-risk jurisdiction: "
                                 f"{tx.counterparty_country}"})
@@ -216,7 +220,7 @@ def ingest(customer, data, actor=None):
         amount_base=round(amount * rate, 2),
         method=(data.get("method") or None),
         counterparty_name=(data.get("counterparty_name") or None),
-        counterparty_country=(data.get("counterparty_country") or None),
+        counterparty_country=normalize_or_keep(data.get("counterparty_country")),
         reference=(data.get("reference") or None),
         booked_at=booked or utcnow(),
     )

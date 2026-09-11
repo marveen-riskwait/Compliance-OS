@@ -160,7 +160,7 @@ def test_name_suggestions_endpoint_groups_customers_and_watchlist(client, tokens
     t = tokens["officer@test.io"]
 
     client.post("/api/customers", headers=auth(t),
-                json={"name": "Tornado Logistics SARL", "customer_type": "COMPANY"})
+                json={"country": "LU", "name": "Tornado Logistics SARL", "customer_type": "COMPANY"})
 
     assert client.get("/api/name-suggestions?q=to",
                       headers=auth(t)).get_json() == {"customers": [], "watchlist": []}
@@ -232,8 +232,8 @@ def test_geography_factors_come_from_official_lists(app):
 
     action = RiskFactor.query.filter_by(code="GEO_FATF_ACTION").first()
     assert action.condition_type == "COUNTRY_IN"
-    assert "Iran" in action.condition_value["values"]
-    assert "North Korea" in action.condition_value["values"]
+    assert "IR" in action.condition_value["values"]   # ISO alpha-2 since the catalogue
+    assert "KP" in action.condition_value["values"]
     # Provenance travels with the factor.
     assert action.condition_value["as_of"]
     assert action.condition_value["source_url"].startswith("http")
@@ -256,7 +256,7 @@ def test_country_sync_refreshes_membership_without_touching_weights(app):
     country_risk.sync(prefer_live=False)
     factor = RiskFactor.query.filter_by(code="GEO_FATF_ACTION").first()
     assert factor.impact == 50, "configured weight must not be overwritten"
-    assert "Iran" in factor.condition_value["values"], "membership is refreshed"
+    assert "IR" in factor.condition_value["values"], "membership is refreshed"
 
 
 def test_stale_lists_are_flagged(app):
