@@ -19,7 +19,8 @@ LEVELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]      # fixed severity ladder
 from api.catalogues import to_iso2, to_activity_code  # noqa: E402
 
 # Which country on the file a COUNTRY_IN factor may look at (default: "country").
-COUNTRY_FIELDS = ("country", "residence", "nationality", "incorporation", "principal_place_of_business")
+COUNTRY_FIELDS = ("country", "residence", "nationality", "incorporation", "principal_place_of_business",
+                  "registered_address", "business_address", "residential_address")
 
 FLAG_FIELDS = ("is_pep", "has_sanctions_match", "has_adverse_media",
                "complex_ownership")

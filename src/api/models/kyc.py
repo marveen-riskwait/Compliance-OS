@@ -29,6 +29,55 @@ REQUIREMENT_STATUSES = ("MISSING", "RECEIVED", "VERIFIED", "WAIVED")
 RISK_RANK = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
 
 
+_FIELD_LABELS = None
+
+
+def field_label(key):
+    """Human label from the KYC form schema, else the key itself."""
+    global _FIELD_LABELS
+    if _FIELD_LABELS is None:
+        try:
+            from api.kyc_form import field_index
+            _FIELD_LABELS = {k: v.get("label") for k, v in field_index().items()}
+        except Exception:      # schema import must never break serialisation
+            _FIELD_LABELS = {}
+    return _FIELD_LABELS.get(key) or key
+
+
+_REGISTRY_NAMES = {
+    "gleif": "GLEIF (global LEI register)", "companies_house": "Companies House (UK register)",
+    "vies": "VIES (EU VAT validation)", "sec_edgar": "SEC EDGAR (US filings)",
+    "sirene": "INSEE Sirene (French register)", "wikidata_pep": "Wikidata (PEP lead)",
+    "adverse_media": "GDELT (adverse media)",
+}
+
+
+def provenance_label(source, verified=False, confidence=None):
+    """Where a value comes from, in words an analyst reads at a glance —
+    'source: registry:gleif · conf 90%' meant nothing to the reviewers."""
+    src = (source or "manual")
+    if src.startswith("registry:"):
+        name = _REGISTRY_NAMES.get(src.split(":", 1)[1], src.split(":", 1)[1])
+        who = f"Imported from {name}"
+    elif src.startswith("provider:"):
+        who = f"Reported by {src.split(':', 1)[1]} (verification provider)"
+    elif src == "kyc_form":
+        who = "Declared in the KYC form"
+    elif src == "portal":
+        who = "Declared by the customer in the portal"
+    elif src == "enrichment":
+        who = "Found by automatic enrichment"
+    else:
+        who = "Entered by staff"
+    if verified:
+        who += " · verified"
+    elif confidence is not None:
+        who += f" · {int(round(confidence * 100))}% confidence, not yet verified"
+    else:
+        who += " · not yet verified"
+    return who
+
+
 class ProfileField(db.Model):
     __tablename__ = "profile_field"
 
@@ -53,6 +102,8 @@ class ProfileField(db.Model):
             "id": self.id,
             "customer_id": self.customer_id,
             "field_key": self.field_key,
+            "label": field_label(self.field_key),
+            "source_label": provenance_label(self.source, self.verified, self.confidence),
             "category": self.category,
             "value": self.value,
             "source": self.source,

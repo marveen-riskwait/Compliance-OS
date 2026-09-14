@@ -865,6 +865,7 @@ def add_document(user, cid):
     if not doc_type:
         raise APIException("doc_type is required", status_code=400)
     expiry = source.get("expiry_days")
+    expiry_on = _date_or_400(source.get("expiry_date"), field="expiry_date")
 
     # Optional: attach the document to a specific related party (a UBO's
     # passport). It must be a party of this organisation.
@@ -880,7 +881,8 @@ def add_document(user, cid):
         party_id=int(party_id) if party_id else None,
         doc_type=doc_type,
         status=source.get("status", "PENDING"),
-        expiry_date=utcnow() + timedelta(days=int(expiry)) if expiry else None,
+        expiry_date=(datetime.combine(expiry_on, datetime.min.time()) if expiry_on
+                     else utcnow() + timedelta(days=int(expiry)) if expiry else None),
         uploaded_by_id=user.id,
     )
     if upload is not None and upload.filename:
@@ -970,6 +972,39 @@ def delete_document(user, cid, did):
     db.session.commit()
     return jsonify({"deleted": True}), 200
 
+
+
+@api.route("/customers/<int:cid>/documents/<int:did>/reuse", methods=["POST"])
+@permission_required("document.upload")
+def reuse_document(user, cid, did):
+    """One file can evidence several requirements (a passport is also the
+    proof of name): the stored file is attached to a new document row of the
+    requested type instead of being uploaded twice."""
+    customer = _get_customer_for(user, cid)
+    src = Document.query.filter_by(id=did, customer_id=cid).first()
+    if src is None or not src.file_url:
+        raise APIException("Document not found or has no file", status_code=404)
+    body = request.get_json(silent=True) or {}
+    doc_type = (body.get("doc_type") or "").strip()
+    party_id = body.get("party_id") or None
+    if not doc_type:
+        raise APIException("doc_type is required", status_code=400)
+    if doc_type == src.doc_type and (int(party_id) if party_id else None) == src.party_id:
+        raise APIException("That document already covers this requirement", status_code=400)
+    doc = Document(customer_id=cid, party_id=int(party_id) if party_id else None,
+                   doc_type=doc_type, status="PENDING", expiry_date=src.expiry_date,
+                   file_url=src.file_url, file_name=src.file_name, media_type=src.media_type,
+                   file_size=src.file_size, uploaded_by_id=user.id,
+                   description=f"Same file as document #{src.id} ({src.doc_type})")
+    db.session.add(doc)
+    db.session.flush()
+    audit.record("DOCUMENT_REUSED", "customer", cid, actor=user,
+                 new_value=f"#{src.id} {src.doc_type} -> {doc_type}",
+                 reason="One file evidences several requirements")
+    db.session.commit()
+    requirement_engine.evaluate(customer)
+    db.session.commit()
+    return jsonify(doc.serialize()), 201
 
 @api.route("/customers/<int:cid>/timeline", methods=["GET"])
 @permission_required("customer.view")
@@ -1142,6 +1177,7 @@ def create_address(user, cid):
         raise APIException("line1 is required", status_code=400)
     addr = party_service.add_address(
         customer,
+        label=((body.get("label") or "").strip()[:80] or None),
         line1=line1, line2=body.get("line2"), city=body.get("city"),
         postal_code=body.get("postal_code"), country=_country_or_400(body.get("country")),
         address_type=body.get("address_type", "RESIDENTIAL"),
@@ -3022,7 +3058,9 @@ def activate_risk_methodology(user, mid):
 @permission_required("management.view", "risk.approve")
 def run_monitoring(user):
     """Manually trigger the continuous-monitoring sweep (normally on Celery beat)."""
-    return jsonify(review_engine.run_monitoring()), 200
+    from api import tasks
+    return jsonify({**review_engine.run_monitoring(),
+                    "documents": tasks.check_document_expiry()}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -3262,11 +3300,24 @@ def get_kyc_form(user, cid):
     schema = kyc_form.schema_for(customer.customer_type, rank)
     fields = ProfileField.query.filter_by(customer_id=cid).all()
     docs = Document.query.filter_by(customer_id=cid).all()
+    values = {f.field_key: {"value": f.value, "verified": f.verified,
+                            "source": f.source} for f in fields}
+    # The legal name is the name the file was opened under until the form says
+    # otherwise (saving a different one renames the file, audited).
+    if customer.customer_type in ("COMPANY", "TRUST") and not (values.get("legal_name") or {}).get("value"):
+        values["legal_name"] = {"value": customer.name, "verified": False, "source": "prefill"}
+    # Persons of this file, for the PEP declaration ("who is the PEP?").
+    persons = []
+    if customer.root_party_id:
+        ids = party_service.structure_party_ids(customer)
+        for p in Party.query.filter(Party.id.in_(list(ids)), Party.kind == "PERSON").order_by(Party.name).all():
+            persons.append({"id": p.id, "name": p.name, "is_pep": p.is_pep,
+                            "role": "the customer" if p.id == customer.root_party_id else "related party"})
     return jsonify({
         **schema,
         "customer": customer.serialize(),
-        "values": {f.field_key: {"value": f.value, "verified": f.verified,
-                                 "source": f.source} for f in fields},
+        "parties": persons,
+        "values": values,
         "documents": [d.serialize() for d in docs],
         "completeness": requirement_engine.summary(customer),
     }), 200
@@ -3309,6 +3360,43 @@ def save_kyc_form(user, cid):
                                   category="BUSINESS", source="kyc_form", actor=user)
             saved += 1
 
+    # The form's legal name IS the customer's name: keep the file title in step
+    # (audited), so the book and the questionnaire never disagree.
+    new_name = None
+    if customer.customer_type in ("COMPANY", "TRUST"):
+        new_name = str(values.get("legal_name") or "").strip()
+    elif customer.customer_type == "INDIVIDUAL":
+        first = str(values.get("first_name") or current.get("first_name") or "").strip()
+        last = str(values.get("last_name") or current.get("last_name") or "").strip()
+        if first and last and ("first_name" in values or "last_name" in values):
+            new_name = f"{first} {last}"
+    if new_name and new_name != customer.name:
+        old = customer.name
+        customer.name = new_name
+        if customer.root_party_id:
+            root = Party.query.get(customer.root_party_id)
+            if root is not None:
+                root.name = new_name
+        audit.record("CUSTOMER_RENAMED", "customer", cid, actor=user,
+                     old_value=old, new_value=new_name, reason="Legal name from the KYC form")
+        db.session.commit()
+        saved += 1
+    # A "yes" to the PEP question names WHO: the ticked persons are flagged on
+    # their own record so the flag follows them everywhere.
+    if str(values.get("pep_self_declaration") or current.get("pep_self_declaration") or "") == "Yes":
+        ticked = str(values.get("pep_persons") or "")
+        ids = {int(x) for x in ticked.split(",") if x.strip().isdigit()}
+        if ids and customer.root_party_id:
+            allowed = party_service.structure_party_ids(customer)
+            for p in Party.query.filter(Party.id.in_(list(ids & allowed)), Party.kind == "PERSON").all():
+                if not p.is_pep:
+                    p.is_pep = True
+                    p.pep_type = p.pep_type or "DECLARED"
+                    audit.record("PARTY_PEP_DECLARED", "party", p.id, actor=user,
+                                 new_value=p.name, reason="Declared in the KYC form")
+                if p.id == customer.root_party_id and not customer.is_pep:
+                    customer.is_pep = True
+            db.session.commit()
     if saved:
         kyc_service.sync_address_from_form(customer, actor=user)
 

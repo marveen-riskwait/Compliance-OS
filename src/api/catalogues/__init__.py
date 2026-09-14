@@ -17,6 +17,19 @@ def normalise_form_value(key, spec, value):
     """Store catalogue codes for country-typed answers and for the business
     activity; leave everything else exactly as typed. Unknown values are kept
     verbatim (never silently dropped)."""
+    import json as _json
+    ftype = (spec or {}).get("type")
+    if ftype == "contacts":
+        # A JSON list of {name, title, email, phone}; empty rows are dropped.
+        try:
+            rows = _json.loads(value) if value else []
+        except ValueError:
+            raise ValueError("contact_persons must be a JSON list")
+        clean = [{k: str(r.get(k) or "").strip()[:200] for k in ("name", "title", "email", "phone")}
+                 for r in rows if isinstance(r, dict) and str(r.get("name") or "").strip()]
+        return _json.dumps(clean, ensure_ascii=False) if clean else ""
+    if ftype == "parties":
+        return ",".join(sorted({x.strip() for x in str(value).split(",") if x.strip().isdigit()}, key=int))
     if value is None:
         return value
     s = str(value).strip()

@@ -126,7 +126,7 @@ export const Customer360 = () => {
   const [relations, setRelations] = useState(null);    // cross-entity relations (Relations tab)
   const [groupRisk, setGroupRisk] = useState(null);    // aggregated risk across the economic group
   const [groupFlows, setGroupFlows] = useState(null);  // money flows between group members
-  const [addrForm, setAddrForm] = useState({ number: "", street: "", city: "", postal_code: "", country: "" });
+  const [addrForm, setAddrForm] = useState({ number: "", street: "", city: "", postal_code: "", country: "", label: "" });
   const [fieldForm, setFieldForm] = useState({ field_key: "", value: "", source: "manual" });
   const [kyb, setKyb] = useState(null);
   const [kybBusy, setKybBusy] = useState(false);
@@ -315,7 +315,7 @@ export const Customer360 = () => {
     setError(null);
     try {
       // Same shape as the KYC form's address block; line1 = number + street.
-      await api.addAddress(id, {
+      await api.addAddress(id, { label: addrForm.label || undefined,
         line1: `${addrForm.number} ${addrForm.street}`.trim(),
         city: addrForm.city, postal_code: addrForm.postal_code,
         country: addrForm.country,
@@ -1066,7 +1066,7 @@ export const Customer360 = () => {
               {a.country ? `, ${a.country_name || a.country}` : ""}
             </div>
             <div className="meta">
-              {a.address_type} · {a.is_current ? "current" : `until ${fmt(a.valid_to)}`}
+              {a.label ? <b>{a.label} · </b> : null}{a.address_type} · {a.is_current ? "current" : `until ${fmt(a.valid_to)}`}
             </div>
           </div>
           {a.is_current && <span className="chip LOW">CURRENT</span>}
@@ -1074,6 +1074,10 @@ export const Customer360 = () => {
       ))}
       {can(store.user, "kyc.edit") && (
         <form onSubmit={submitAddress} className="row g-1 align-items-end" style={{ marginTop: ".6rem", borderTop: "1px solid var(--co-border)", paddingTop: ".6rem" }}>
+          <div className="col-12">
+            <input className="form-control form-control-sm" placeholder="Label — e.g. Registered office, Warehouse Esch (optional)"
+              value={addrForm.label} onChange={(e) => setAddrForm({ ...addrForm, label: e.target.value })} />
+          </div>
           <div className="col-3 col-md-2">
             <input className="form-control form-control-sm" placeholder="N°"
               value={addrForm.number} onChange={(e) => setAddrForm({ ...addrForm, number: e.target.value })} />
@@ -1104,17 +1108,18 @@ export const Customer360 = () => {
 
   const kycDataCard = (
     <div className="co-card">
-      <div className="section-title">KYC data (provenance)</div>
+      <div className="section-title">KYC data — where each value comes from</div>
+      <p className="muted" style={{ fontSize: ".8rem", marginTop: "-.2rem" }}>
+        Every value keeps its origin: declared in the form, imported from a public register, or entered by staff — and
+        whether someone has verified it. Registry imports are trusted; declarations need a human check.
+      </p>
       {fields.length === 0 && <div className="muted" style={{ fontSize: ".88rem" }}>No fields captured.</div>}
       {fields.map((f) => (
         <div className="work-row" key={f.id}>
           <span className={`dotsev ${f.verified ? "LOW" : "MEDIUM"}`} />
           <div className="grow">
-            <div className="title">{f.field_key}: {f.value || "—"}</div>
-            <div className="meta">
-              source: {f.source}{f.confidence != null ? ` · conf ${Math.round(f.confidence * 100)}%` : ""}
-              {f.verified ? " · verified" : ""}
-            </div>
+            <div className="title">{f.label || f.field_key}: {f.value || "—"}</div>
+            <div className="meta">{f.source_label || f.source}</div>
           </div>
           {f.verified
             ? <span className="chip LOW">✓ verified</span>
@@ -1447,7 +1452,7 @@ export const Customer360 = () => {
 
       {tab === "kyc" && (
         <>
-          <DocumentReview customerId={id} documents={documents}
+          <DocumentReview customerId={id} documents={documents} canUpload={can(store.user, "document.upload")}
             canReview={can(store.user, "document.verify")} onChange={load} />
           {companyRegistryCard && (
             <div className="row g-3 mt-0"><div className="col-12">{companyRegistryCard}</div></div>

@@ -132,6 +132,8 @@ class Address(db.Model):
     party_id: Mapped[int] = mapped_column(ForeignKey("party.id"), nullable=False)
 
     address_type: Mapped[str] = mapped_column(String(20), default="RESIDENTIAL")
+    # Free label so several addresses can be told apart ("Registered office", "Warehouse Esch").
+    label: Mapped[str] = mapped_column(String(80), nullable=True)
     line1: Mapped[str] = mapped_column(String(200), nullable=False)
     line2: Mapped[str] = mapped_column(String(200), nullable=True)
     city: Mapped[str] = mapped_column(String(120), nullable=True)
@@ -148,6 +150,7 @@ class Address(db.Model):
             "id": self.id,
             "party_id": self.party_id,
             "address_type": self.address_type,
+            "label": self.label,
             "line1": self.line1,
             "line2": self.line2,
             "city": self.city,

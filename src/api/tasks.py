@@ -75,9 +75,17 @@ def check_document_expiry(days=30):
             .filter(Document.expiry_date <= horizon)
             .filter(Document.status != "EXPIRED")
             .all())
-    count = 0
+    count, expired = 0, 0
     for doc in docs:
+        if not doc.file_url:
+            continue                      # nothing received yet — nothing to expire
         remaining = (doc.expiry_date - utcnow()).days
+        if remaining < 0:
+            # Past its date the document is no evidence any more: the
+            # requirement re-opens (completeness drops) and the event below
+            # routes a task to whoever chases documents.
+            doc.status = "EXPIRED"
+            expired += 1
         emit_event("DOCUMENT_EXPIRING", customer_id=doc.customer_id,
                    severity="MEDIUM" if remaining > 7 else "HIGH",
                    source="document_monitor",
@@ -85,4 +93,5 @@ def check_document_expiry(days=30):
                             "document_id": doc.id,
                             "days_remaining": remaining})
         count += 1
-    return {"expiring": count}
+    db.session.commit()
+    return {"expiring": count, "expired": expired}

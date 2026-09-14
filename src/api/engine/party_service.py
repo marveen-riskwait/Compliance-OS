@@ -367,7 +367,7 @@ def remove_related_party(customer, edge_id, actor=None, reason=None):
 
 
 def add_address(customer, *, line1, line2=None, city=None, postal_code=None,
-                country=None, address_type="RESIDENTIAL", actor=None):
+                country=None, address_type="RESIDENTIAL", actor=None, label=None):
     """Add an address; a replacement of a current address of the same type
     closes the old one (history kept) and emits ADDRESS_CHANGED."""
     party = ensure_root_party(customer)
@@ -378,7 +378,7 @@ def add_address(customer, *, line1, line2=None, city=None, postal_code=None,
     addr = Address(
         organization_id=customer.organization_id,
         party_id=party.id,
-        address_type=address_type,
+        address_type=address_type, label=label,
         line1=line1, line2=line2, city=city,
         postal_code=postal_code, country=country,
     )

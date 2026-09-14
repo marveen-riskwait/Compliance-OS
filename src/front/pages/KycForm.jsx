@@ -16,11 +16,58 @@ const fileSize = (bytes) => {
 // Answers land in ProfileField with provenance; proofs land in Document; both
 // feed the requirement engine, so the completeness bar moves as you fill.
 
-const Field = ({ spec, value, onChange }) => {
+// A field is shown when its show_if condition (if any) is met by another answer.
+export const isShown = (spec, values) =>
+  !spec.show_if || (values[spec.show_if.key] ?? "") === spec.show_if.equals;
+
+const parseRows = (v) => { try { const r = JSON.parse(v || "[]"); return Array.isArray(r) ? r : []; } catch (e) { return []; } };
+
+const Field = ({ spec, value, onChange, parties = [] }) => {
   const v = value ?? "";
   const common = { id: `kf-${spec.key}` };
   let control;
-  if (spec.type === "textarea") {
+  if (spec.type === "contacts") {
+    // Several contact persons, each with a role — stored as a JSON list.
+    const rows = parseRows(v);
+    const set = (next) => onChange(spec.key, next.length ? JSON.stringify(next) : "");
+    const edit = (i, k, val) => set(rows.map((r, j) => (j === i ? { ...r, [k]: val } : r)));
+    control = (
+      <div>
+        {rows.map((r, i) => (
+          <div className="row g-1 mb-1" key={i}>
+            <div className="col-12 col-md-3"><input className="form-control form-control-sm" placeholder="Name" value={r.name || ""} onChange={(e) => edit(i, "name", e.target.value)} /></div>
+            <div className="col-6 col-md-3"><input className="form-control form-control-sm" placeholder="Role / title" value={r.title || ""} onChange={(e) => edit(i, "title", e.target.value)} /></div>
+            <div className="col-6 col-md-3"><input className="form-control form-control-sm" placeholder="Email" value={r.email || ""} onChange={(e) => edit(i, "email", e.target.value)} /></div>
+            <div className="col-10 col-md-2"><input className="form-control form-control-sm" placeholder="Phone" value={r.phone || ""} onChange={(e) => edit(i, "phone", e.target.value)} /></div>
+            <div className="col-2 col-md-1"><button type="button" className="btn btn-sm btn-outline-secondary w-100" title="Remove" onClick={() => set(rows.filter((_, j) => j !== i))}>×</button></div>
+          </div>
+        ))}
+        <button type="button" className="btn btn-sm btn-outline-secondary"
+          onClick={() => set([...rows, { name: "", title: "", email: "", phone: "" }])}>
+          <i className="fa-solid fa-plus" /> Add a contact person
+        </button>
+      </div>
+    );
+  } else if (spec.type === "parties") {
+    // Persons of this file; ticking one flags it as PEP on its own record.
+    const ticked = new Set(String(v).split(",").filter(Boolean));
+    const toggle = (id) => {
+      const next = new Set(ticked); next.has(String(id)) ? next.delete(String(id)) : next.add(String(id));
+      onChange(spec.key, [...next].join(","));
+    };
+    control = parties.length === 0
+      ? <div className="muted" style={{ fontSize: ".85rem" }}>No person recorded on this file yet — add the customer / owners under Relations first.</div>
+      : (
+        <div className="kf-multi">
+          {parties.map((p) => (
+            <button type="button" key={p.id} className={"kf-chip" + (ticked.has(String(p.id)) ? " on" : "")}
+              onClick={() => toggle(p.id)} title={p.role}>
+              {p.name}{p.is_pep ? " · PEP" : ""}
+            </button>
+          ))}
+        </div>
+      );
+  } else if (spec.type === "textarea") {
     control = <textarea {...common} className="form-control" rows={3} value={v}
       onChange={(e) => onChange(spec.key, e.target.value)} />;
   } else if (spec.type === "select") {
@@ -103,7 +150,7 @@ export const KycForm = () => {
   };
 
   const sectionDone = (s) =>
-    s.fields.every((f) => !f.required || (values[f.key] || "").trim() !== "");
+    s.fields.every((f) => !f.required || !isShown(f, values) || (values[f.key] || "").trim() !== "");
 
   const saveSection = async (s) => {
     const payload = {};
@@ -219,8 +266,8 @@ export const KycForm = () => {
               <h4 style={{ marginTop: 0 }}>{activeSection.title}</h4>
               <p className="muted" style={{ fontSize: ".86rem" }}>{activeSection.description}</p>
               <div className="kf-grid">
-                {activeSection.fields.map((f) => (
-                  <Field key={f.key} spec={f} value={values[f.key]} onChange={onChange} />
+                {activeSection.fields.filter((f) => isShown(f, values)).map((f) => (
+                  <Field key={f.key} spec={f} value={values[f.key]} onChange={onChange} parties={data.parties || []} />
                 ))}
               </div>
               <button className="btn btn-co" style={{ marginTop: "1rem" }}
@@ -254,7 +301,8 @@ export const KycForm = () => {
                                 onClick={() => setPreview(d)}>
                                 <i className="fa-solid fa-file-lines" /> {d.file_name}
                               </button>
-                              <span> · {fileSize(d.file_size)} · {d.status}</span>
+                              <span> · {fileSize(d.file_size)} · {d.status}
+                                {d.expiry_date ? (d.expired ? " · EXPIRED " : " · expires ") + new Date(d.expiry_date).toLocaleDateString() : ""}</span>
                             </>
                           ) : (
                             <><i className="fa-regular fa-hourglass" /> awaiting file — {d.status}</>

@@ -40,7 +40,7 @@ def active_methodology(organization_id):
             .filter_by(organization_id=None, active=True).first())
 
 
-def _country_values(customer):
+def _country_values_base(customer):
     """Every country recorded on the file, by role. Codes (ISO alpha-2) when
     recognised, else the raw text — so a legacy free-text value still has a
     chance to match a legacy free-text list."""
@@ -64,6 +64,22 @@ def _country_values(customer):
             if f.value and not out.get(role):
                 out[role] = f.value
     return {k: (to_iso2(v) or (v or "").strip().lower()) for k, v in out.items() if v}
+
+
+def _country_values(customer):
+    """The file's countries by role. On top of the declared ones, the current
+    addresses of the subject: a registered office or business address in a
+    listed jurisdiction is geography risk too (manager feedback K3)."""
+    have = _country_values_base(customer)
+    if customer.root_party_id:
+        from api.models.parties import Address
+        for a in Address.query.filter_by(party_id=customer.root_party_id, is_current=True).all():
+            role = {"REGISTERED": "registered_address", "BUSINESS": "business_address",
+                    "RESIDENTIAL": "residential_address"}.get(a.address_type)
+            code = to_iso2(a.country) or ((a.country or "").strip() or None)
+            if role and code and not have.get(role):
+                have[role] = code
+    return have
 
 
 def _factor_matches(factor, customer):

@@ -67,7 +67,7 @@ def _status_for(customer, d, party_id=None):
     q = Document.query.filter_by(customer_id=customer.id, doc_type=d.doc_type)
     if party_id is not None:
         q = q.filter_by(party_id=party_id)
-    with_file = [doc for doc in q.all() if doc.file_url]
+    with_file = [doc for doc in q.all() if doc.file_url and doc.status != "EXPIRED"]
     if not with_file:
         return "MISSING"
     if any(doc.status == "VERIFIED" for doc in with_file):

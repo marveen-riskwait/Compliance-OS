@@ -34,7 +34,8 @@ from api.catalogues.countries import to_iso2, country_name
 # customer's country, but also a person's residence / nationality and a
 # company's incorporation / principal place of business.
 GEO_FIELDS = ["country", "residence", "nationality", "incorporation",
-              "principal_place_of_business"]
+              "principal_place_of_business",
+              "registered_address", "business_address", "residential_address"]
 
 # code -> (dataset, label, default impact)
 GEOGRAPHY_FACTORS = {

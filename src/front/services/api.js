@@ -124,11 +124,12 @@ export const api = {
   customer: (id) => request(`/customers/${id}`),
   screen: (id) => request(`/customers/${id}/screen`, { method: "POST" }),
   addDocument: (id, payload) => request(`/customers/${id}/documents`, { method: "POST", body: payload }),
-  uploadDocument: async (id, docType, file, partyId = null) => {
+  uploadDocument: async (id, docType, file, partyId = null, extra = {}) => {
     const form = new FormData();
     form.append("file", file);
     form.append("doc_type", docType);
     if (partyId) form.append("party_id", partyId);
+    Object.entries(extra).forEach(([k, v]) => { if (v) form.append(k, v); });
     const res = await fetch(`${BASE}/api/customers/${id}/documents`, {
       method: "POST",
       credentials: "include",
@@ -142,6 +143,8 @@ export const api = {
     if (!res.ok) throw new Error(data.message || `Upload failed (${res.status})`);
     return data;
   },
+  reuseDocument: (id, docId, payload) =>
+    request(`/customers/${id}/documents/${docId}/reuse`, { method: "POST", body: payload }),
   deleteDocument: (id, docId) =>
     request(`/customers/${id}/documents/${docId}`, { method: "DELETE" }),
   timeline: (id) => request(`/customers/${id}/timeline`),

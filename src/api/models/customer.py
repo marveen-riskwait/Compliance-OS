@@ -166,6 +166,8 @@ class Document(db.Model):
             "doc_type": self.doc_type,
             "status": self.status,
             "expiry_date": self.expiry_date.isoformat() if self.expiry_date else None,
+            "expires_in_days": (self.expiry_date - utcnow()).days if self.expiry_date else None,
+            "expired": bool(self.expiry_date and self.expiry_date < utcnow()) or self.status == "EXPIRED",
             "file_url": _sign(self.file_url),
             "file_name": self.file_name,
             "media_type": self.media_type,

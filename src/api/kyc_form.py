@@ -60,8 +60,12 @@ YES_NO = ["No", "Yes"]
 
 
 def _f(key, label, type="text", *, category=None, options=None, required=False,
-       help=None):
+       help=None, show_if=None):
+    """show_if=("other_key", "Yes") hides the field until that answer is given
+    (a required field that is hidden is not required)."""
     out = {"key": key, "label": label, "type": type, "required": required}
+    if show_if:
+        out["show_if"] = {"key": show_if[0], "equals": show_if[1]}
     if category:
         out["category"] = category
     if options:
@@ -191,6 +195,9 @@ FORM_SECTIONS = [
                help="Feeds geography risk when it differs from the registered office."),
             _f("phone_number", "Phone number", category="ADDRESS"),
             _f("email_address", "Email address", required=True, category="ADDRESS"),
+            _f("contact_persons", "Contact persons", "contacts", category="ADDRESS",
+               help="Everyone we may deal with on this relationship, with their role — "
+                    "the primary contact above stays the one we write to."),
         ],
     },
     {
@@ -236,6 +243,10 @@ FORM_SECTIONS = [
             _f("control_by_other_means", "Control exercised by other means?",
                "select", options=YES_NO, category="BUSINESS",
                help="Voting arrangements, agreements, golden shares…"),
+            _f("control_by_other_means_detail", "Which other means? Describe them", "textarea",
+               category="BUSINESS", show_if=("control_by_other_means", "Yes"),
+               help="Who exercises the control, on what basis (agreement, veto, "
+                    "golden share…) and since when."),
         ],
     },
 
@@ -343,11 +354,16 @@ FORM_SECTIONS = [
             _f("pep_self_declaration",
                "Is the customer (or any UBO / director) a PEP?", "select",
                options=YES_NO, required=True, category="PURPOSE"),
-            _f("pep_position", "Public function / position held", category="PURPOSE"),
+            _f("pep_persons", "Who is the PEP? Tick the person(s) of this file", "parties",
+               category="PURPOSE", show_if=("pep_self_declaration", "Yes"),
+               help="The ticked persons are flagged PEP on their own record, so the "
+                    "flag follows them into screening, EDD and reporting."),
+            _f("pep_position", "Public function / position held", category="PURPOSE",
+               show_if=("pep_self_declaration", "Yes")),
             _f("pep_country", "Country of the public function", "country",
-               category="PURPOSE"),
+               category="PURPOSE", show_if=("pep_self_declaration", "Yes")),
             _f("pep_relationship", "If family member / close associate: relationship",
-               category="PURPOSE"),
+               category="PURPOSE", show_if=("pep_self_declaration", "Yes")),
         ],
     },
 
