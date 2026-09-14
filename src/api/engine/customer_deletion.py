@@ -13,6 +13,7 @@ behind decisions to be retained for years. So this is deliberately narrow:
   id/type without a foreign key, so the record of "who deleted what and why"
   outlives the customer, which is exactly what an auditor needs.
 """
+from api.models import CustomerNote  # noqa: E402
 from api.models import (
     db, Customer, Document, RiskAssessment, ProfileField, RequirementInstance,
     ScreeningRun, ScreeningMatch, Case, Task, Notification, ComplianceEvent,
@@ -98,7 +99,7 @@ def delete_customer(customer, actor, reason, force=False):
     for model in (ComplianceAlert, ScreeningMatch, Task, Notification,
                   ComplianceEvent, Review, RequirementInstance, ProfileField,
                   Document, RiskAssessment, ScreeningRun, Conversation,
-                  RawProviderResponse, NormalizedComplianceResult):
+                  RawProviderResponse, NormalizedComplianceResult, CustomerNote):
         model.query.filter_by(customer_id=cid).delete(synchronize_session=False)
     Case.query.filter_by(customer_id=cid).delete(synchronize_session=False)
 

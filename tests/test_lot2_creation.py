@@ -18,9 +18,11 @@ def test_list_and_detail_carry_onboarding_state_and_validity(client, tokens):
     # the next periodic review
     rid = row["onboarding"]["review_id"]
     assert client.post(f"/api/reviews/{rid}/start", headers=auth(tok)).status_code == 200
+    # an empty file cannot be approved silently (lot 5 gate): say why, audited
     r = client.post(f"/api/reviews/{rid}/complete", headers=auth(tok),
-                    json={"decision": "APPROVED", "reason": "All checks done"})
-    assert r.status_code == 200
+                    json={"decision": "APPROVED", "reason": "All checks done",
+                          "override_reason": "Test fixture: approving an empty file on purpose"})
+    assert r.status_code == 200, r.get_json()
     row = next(c for c in client.get("/api/customers", headers=auth(tok)).get_json() if c["id"] == cid)
     assert row["status"] == "ACTIVE"
     assert row["onboarding"]["state"] == "APPROVED" and row["valid_until"]

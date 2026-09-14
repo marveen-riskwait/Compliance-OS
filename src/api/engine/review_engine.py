@@ -161,6 +161,32 @@ def onboarding_summary(customer):
     return onboarding_summaries([customer]).get(customer.id)
 
 
+OPEN_MATCH_STATUSES = ("POTENTIAL", "UNDER_REVIEW", "ESCALATED")
+
+
+def approval_blockers(customer):
+    """What must be in place before an approval is recorded on a review —
+    the analyst can still approve, but only by naming why (audited)."""
+    from api.engine import requirement_engine
+    from api.models import ScreeningRun, ScreeningMatch
+    out = []
+    s = requirement_engine.summary(customer)
+    if s.get("missing_count"):
+        names = [(m.get("label") or m.get("code") or "?") for m in (s.get("missing") or [])[:5]]
+        out.append({"code": "MISSING_REQUIREMENTS",
+                    "message": f"{s['missing_count']} mandatory item(s) still missing: "
+                               + ", ".join(names) + ("…" if s["missing_count"] > 5 else "")})
+    if ScreeningRun.query.filter_by(customer_id=customer.id).count() == 0:
+        out.append({"code": "SCREENING_NOT_RUN",
+                    "message": "Screening has never been run on this file"})
+    open_matches = (ScreeningMatch.query.filter_by(customer_id=customer.id)
+                    .filter(ScreeningMatch.status.in_(OPEN_MATCH_STATUSES)).count())
+    if open_matches:
+        out.append({"code": "OPEN_MATCHES",
+                    "message": f"{open_matches} screening match(es) not yet decided (confirm or clear them)"})
+    return out
+
+
 def start_review(review, actor=None):
     review.status = "IN_PROGRESS"
     review.started_at = utcnow()

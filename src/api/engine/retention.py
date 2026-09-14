@@ -13,6 +13,7 @@ deleted what, when and why survives every erasure.
 """
 from datetime import timedelta
 
+from api.models import CustomerNote  # noqa: E402
 from api.models import (db, Customer, Organization, Document, Address,
                         ProfileField, ScreeningMatch, Case, Task, Transaction,
                         ComplianceAlert, Review, SuspiciousActivityReport,
@@ -110,4 +111,5 @@ def data_export(customer):
     }
     audit.record("DATA_EXPORTED", "customer", cid,
                  new_value="subject access export", commit=True)
+    export["notes"] = [n.serialize() for n in CustomerNote.query.filter_by(customer_id=customer.id).all()]
     return export

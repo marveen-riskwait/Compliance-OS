@@ -47,6 +47,7 @@ const MATCH_SEV = {
 // of one long wall. Order follows how an analyst works a file.
 const TABS = [
   { key: "overview", label: "Overview", icon: "fa-gauge-high" },
+  { key: "risk", label: "Risk", icon: "fa-scale-unbalanced" },
   { key: "kyc", label: "KYC & Documents", icon: "fa-id-card" },
   { key: "relations", label: "Relations", icon: "fa-sitemap" },
   { key: "screening", label: "Screening", icon: "fa-magnifying-glass" },
@@ -141,9 +142,22 @@ export const Customer360 = () => {
   const [openingChat, setOpeningChat] = useState(false);
   const [showPortalAccess, setShowPortalAccess] = useState(false);
   const [params, setParams] = useSearchParams();
+  const [breakdown, setBreakdown] = useState(null);        // Risk tab: every factor, fired or not
+  const [notes, setNotes] = useState(null);                // analysis summary + comment thread
+  const [noteText, setNoteText] = useState("");
+  const [summaryDraft, setSummaryDraft] = useState(null);  // null = not editing
+  const [gate, setGate] = useState(null);                  // {rid, blockers, override} after a 409 on approve
+  const [triggering, setTriggering] = useState(false);
+  const [triggerForm, setTriggerForm] = useState({ review_type: "EVENT_DRIVEN_REVIEW", reason: "" });
   const [tab, setTabState] = useState(params.get("tab") || "overview");   // active customer-file tab, mirrored in ?tab=
   const setTab = (t) => { setTabState(t); setParams(t === "overview" ? {} : { tab: t }, { replace: true }); };
   useEffect(() => { const t = params.get("tab"); if (t && t !== tab) setTabState(t); }, [params]);   // eslint-disable-line
+  useEffect(() => {
+    if (tab === "risk") api.riskBreakdown(id).then(setBreakdown).catch((e) => setError(e.message));
+  }, [tab, id, data]);   // eslint-disable-line
+  useEffect(() => {
+    api.notes(id).then(setNotes).catch(() => setNotes({ summary: null, comments: [] }));
+  }, [id, data]);   // eslint-disable-line
 
   // The client conversation belongs to the customer file: opening it joins the
   // team room rather than starting a private thread with whoever clicked.
@@ -238,13 +252,38 @@ export const Customer360 = () => {
   };
   // Completing a review is a decision, not a click: an inline panel asks for
   // approve/reject + a reason (same discipline as workflow step findings).
-  const completeReview = async (rid) => {
+  const completeReview = async (rid, overrideReason = "") => {
     try {
       await api.completeReview(rid, {
-        decision: reviewForm.decision, reason: reviewForm.reason.trim() });
-      setCompleting(null); setReviewForm({ decision: "APPROVED", reason: "" });
+        decision: reviewForm.decision, reason: reviewForm.reason.trim(),
+        override_reason: overrideReason || undefined });
+      setCompleting(null); setGate(null); setReviewForm({ decision: "APPROVED", reason: "" });
+      await load();
+    } catch (err) {
+      // 409 = the approval gate: show what is missing and let the reviewer
+      // override with a reason (audited) rather than silently approve.
+      if (err.status === 409 && err.data?.blockers) setGate({ rid, blockers: err.data.blockers, override: "" });
+      else setError(err.message);
+    }
+  };
+  const triggerReview = async (e) => {
+    e.preventDefault();
+    if (triggerForm.reason.trim().length < 5) return;
+    try {
+      await api.createReview(id, { review_type: triggerForm.review_type, reason: triggerForm.reason.trim() });
+      setTriggering(false); setTriggerForm({ review_type: "EVENT_DRIVEN_REVIEW", reason: "" });
       await load();
     } catch (err) { setError(err.message); }
+  };
+  const saveNote = async (kind, text) => {
+    if (!text.trim()) return;
+    try {
+      const n = await api.addNote(id, { kind, text: text.trim() });
+      setNotes(n); if (kind === "COMMENT") setNoteText(""); else setSummaryDraft(null);
+    } catch (err) { setError(err.message); }
+  };
+  const removeNote = async (nid) => {
+    try { setNotes(await api.deleteNote(id, nid)); } catch (err) { setError(err.message); }
   };
 
   const removeOwner = async (edge) => {
@@ -385,7 +424,37 @@ export const Customer360 = () => {
 
   const reviewsCard = (
     <div className="co-card">
-      <div className="section-title">Reviews {reviews.length > 0 && `(${reviews.length})`}</div>
+      <div className="section-title grp-head">
+        <span>Reviews {reviews.length > 0 && `(${reviews.length})`}</span>
+        {can(store.user, "kyc.review") && (
+          <button type="button" className="btn btn-sm btn-outline-secondary"
+            title="Bring a review forward — change of ownership, a tip-off, a press article…"
+            onClick={() => setTriggering((t) => !t)}>
+            <i className="fa-solid fa-bolt" /> Trigger review
+          </button>
+        )}
+      </div>
+      {triggering && (
+        <form onSubmit={triggerReview} className="wf-complete" style={{ marginBottom: ".6rem" }}>
+          <div className="meta" style={{ marginBottom: ".35rem" }}>
+            Why is this review brought forward? The reason becomes the review's trigger and is audited.
+          </div>
+          <select className="form-select form-select-sm" value={triggerForm.review_type}
+            onChange={(e) => setTriggerForm({ ...triggerForm, review_type: e.target.value })}>
+            <option value="EVENT_DRIVEN_REVIEW">Event-driven review (something changed)</option>
+            <option value="EDD_REVIEW">Enhanced due diligence review</option>
+            <option value="REMEDIATION_REVIEW">Remediation review</option>
+            <option value="PERIODIC_REVIEW">Periodic review, brought forward</option>
+          </select>
+          <input className="form-control form-control-sm" style={{ marginTop: ".4rem" }}
+            placeholder="Reason — e.g. change of ownership reported on 12/09 (min 5 chars)"
+            value={triggerForm.reason} onChange={(e) => setTriggerForm({ ...triggerForm, reason: e.target.value })} />
+          <div className="d-flex gap-2" style={{ marginTop: ".5rem" }}>
+            <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setTriggering(false)}>Cancel</button>
+            <button className="btn btn-sm btn-co" disabled={triggerForm.reason.trim().length < 5}>Open the review</button>
+          </div>
+        </form>
+      )}
       {reviews.length === 0 && <div className="muted" style={{ fontSize: ".88rem" }}>No reviews.</div>}
       <div className="co-rows">
       {reviews.map((r) => (
@@ -451,6 +520,24 @@ export const Customer360 = () => {
                   disabled={reviewForm.reason.trim().length < 5}
                   onClick={() => completeReview(r.id)}>Record decision</button>
               </div>
+              {gate?.rid === r.id && (
+                <div className="alert alert-warning py-2 mt-2 mb-0" style={{ fontSize: ".85rem" }}>
+                  <div><i className="fa-solid fa-triangle-exclamation" /> <b>Not ready to approve:</b></div>
+                  <ul style={{ margin: ".3rem 0 .4rem", paddingLeft: "1.1rem" }}>
+                    {gate.blockers.map((b) => <li key={b.code}>{b.message}</li>)}
+                  </ul>
+                  <div className="meta" style={{ marginBottom: ".3rem" }}>
+                    Fix these first (Completeness / Screening tabs) — or approve anyway with a reason, which is audited.
+                  </div>
+                  <input className="form-control form-control-sm" placeholder="Override reason (min 10 chars)"
+                    value={gate.override} onChange={(e) => setGate({ ...gate, override: e.target.value })} />
+                  <div className="d-flex gap-2" style={{ marginTop: ".4rem" }}>
+                    <button className="btn btn-sm btn-outline-secondary" onClick={() => setGate(null)}>Back</button>
+                    <button className="btn btn-sm btn-warning" disabled={gate.override.trim().length < 10}
+                      onClick={() => completeReview(r.id, gate.override.trim())}>Approve anyway (audited)</button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1444,9 +1531,127 @@ export const Customer360 = () => {
       </div>
 
       {tab === "overview" && (
-        <div className="row g-3">
-          <div className="col-md-5">{riskCard}</div>
-          <div className="col-md-7">{reviewsCard}</div>
+        <>
+          <div className="row g-3">
+            <div className="col-md-5">{riskCard}</div>
+            <div className="col-md-7">{reviewsCard}</div>
+          </div>
+          <div className="co-card mt-3">
+            <div className="section-title">Analysis &amp; notes</div>
+            {notes === null && <div className="muted" style={{ fontSize: ".88rem" }}>Loading notes…</div>}
+            {notes && (
+              <>
+                <div className="muted" style={{ fontSize: ".78rem", marginBottom: ".2rem" }}>Analysis summary (pinned — one per file, changes are audited)</div>
+                {summaryDraft === null ? (
+                  <div className="d-flex gap-2 align-items-start">
+                    <div className="grow" style={{ whiteSpace: "pre-wrap", fontSize: ".92rem" }}>
+                      {notes.summary ? notes.summary.text : <span className="muted">No analysis summary yet.</span>}
+                      {notes.summary && (
+                        <div className="meta">by {notes.summary.author_name || "—"} · {new Date(notes.summary.updated_at || notes.summary.created_at).toLocaleString()}</div>
+                      )}
+                    </div>
+                    {(can(store.user, "kyc.edit") || can(store.user, "kyc.review")) && (
+                      <button className="btn btn-sm btn-outline-secondary" onClick={() => setSummaryDraft(notes.summary?.text || "")}>
+                        <i className="fa-solid fa-pen" /> {notes.summary ? "Edit" : "Write"}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <textarea className="form-control form-control-sm" rows={4} value={summaryDraft}
+                      placeholder="What this file is, why it carries this risk, what was verified and what remains open."
+                      onChange={(e) => setSummaryDraft(e.target.value)} />
+                    <div className="d-flex gap-2 mt-2">
+                      <button className="btn btn-sm btn-outline-secondary" onClick={() => setSummaryDraft(null)}>Cancel</button>
+                      <button className="btn btn-sm btn-co" disabled={!summaryDraft.trim()} onClick={() => saveNote("ANALYSIS_SUMMARY", summaryDraft)}>Save summary</button>
+                    </div>
+                  </div>
+                )}
+                <div className="muted" style={{ fontSize: ".78rem", margin: ".8rem 0 .2rem" }}>Comments ({notes.comments.length})</div>
+                <div className="co-rows">
+                  {notes.comments.map((c) => (
+                    <div className="work-row" key={c.id}>
+                      <span className="dotsev INFO" />
+                      <div className="grow">
+                        <div style={{ whiteSpace: "pre-wrap", fontSize: ".9rem" }}>{c.text}</div>
+                        <div className="meta">{c.author_name || "—"} · {new Date(c.created_at).toLocaleString()}</div>
+                      </div>
+                      {(c.author_id === store.user?.id || can(store.user, "kyc.approve")) && (
+                        <button type="button" className="kf-doc-remove" title="Delete (audited)" onClick={() => removeNote(c.id)}>×</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {(can(store.user, "kyc.edit") || can(store.user, "kyc.review")) && (
+                  <div className="d-flex gap-2 mt-2">
+                    <input className="form-control form-control-sm" placeholder="Add a comment — a call, a finding, a decision…"
+                      value={noteText} onChange={(e) => setNoteText(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") saveNote("COMMENT", noteText); }} />
+                    <button className="btn btn-sm btn-co" disabled={!noteText.trim()} onClick={() => saveNote("COMMENT", noteText)}>Add</button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {tab === "risk" && (
+        <div className="co-card">
+          <div className="section-title grp-head">
+            <span>Risk — every factor, fired or not</span>
+            {breakdown && (
+              <span>
+                <span className="risk-badge">{breakdown.score}<small> / 100</small></span>{" "}
+                <span className={`chip ${breakdown.level}`}>{breakdown.level}</span>
+              </span>
+            )}
+          </div>
+          {breakdown === null && <div className="muted" style={{ fontSize: ".88rem" }}>Loading…</div>}
+          {breakdown && (
+            <>
+              <p className="muted" style={{ fontSize: ".82rem", marginTop: 0 }}>
+                Methodology <b>{breakdown.methodology.name}</b> (v{breakdown.methodology.version}
+                {breakdown.methodology.org_specific ? ", this organisation's own" : ", system default"}). Score ladder:{" "}
+                {breakdown.thresholds.map((t) => `${t.level} ${t.min}–${t.max ?? "∞"}`).join(" · ")}.
+                {breakdown.stale && <> <b>The stored score ({breakdown.stored_score}) is older than the data — it refreshes on the next event or screening.</b></>}
+              </p>
+              <div className="co-table-wrap">
+                <table className="table table-sm" style={{ fontSize: ".86rem" }}>
+                  <thead><tr><th>Factor</th><th>Looks at</th><th>Where the data comes from</th><th className="text-end">Impact</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {breakdown.factors.map((f) => (
+                      <tr key={f.code} style={f.fired ? { fontWeight: 600 } : { opacity: f.active ? 0.85 : 0.5 }}>
+                        <td>{f.label}<div className="meta">{f.code}{f.as_of ? ` · list as of ${f.as_of}` : ""}</div></td>
+                        <td>{f.condition}</td>
+                        <td>{f.driven_by}</td>
+                        <td className="text-end">{f.fired ? `+${f.impact}` : f.impact}</td>
+                        <td>{!f.active ? <span className="chip INFO">inactive</span>
+                          : f.fired ? <span className="chip HIGH" title={f.via || ""}>fired{f.via ? ` · ${f.via}` : ""}</span>
+                          : <span className="chip LOW">not triggered</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="muted" style={{ fontSize: ".78rem", margin: ".6rem 0 .2rem" }}>Assessment history ({breakdown.history.length})</div>
+              <div className="co-rows">
+                {breakdown.history.map((h) => (
+                  <div className="work-row" key={h.id}>
+                    <span className={`dotsev ${h.level}`} />
+                    <div className="grow">
+                      <div className="title">{h.score} / 100 · {h.level}</div>
+                      <div className="meta">
+                        {(h.assessed_at || h.created_at || h.computed_at) ? new Date(h.assessed_at || h.created_at || h.computed_at).toLocaleString() : ""}
+                        {h.methodology_version ? ` · v${h.methodology_version}` : ""}
+                        {h.factors?.length ? ` · ${h.factors.map((x) => x.label).join(", ")}` : " · no factor fired"}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

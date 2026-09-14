@@ -8,6 +8,7 @@ The whole platform is organised around one spine:
     DATA -> EVENT -> RULE -> RISK -> WORKFLOW -> HUMAN DECISION -> AUDIT
 """
 from api.models.base import db, utcnow
+from api.models.notes import CustomerNote, NOTE_KINDS  # noqa: F401
 
 # Import order doesn't matter for relationships (string class refs resolve via
 # the shared registry), but all modules must be imported before the first query

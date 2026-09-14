@@ -12,6 +12,7 @@ from flask import request, jsonify, Blueprint, Response
 from flask_cors import CORS
 from sqlalchemy import func
 
+from api.models import CustomerNote, NOTE_KINDS  # noqa: E402
 from api.models import (
     db, Organization, User, Role, Permission, Customer, Document, RiskAssessment,
     ComplianceEvent, ComplianceRule, Case, Task, Notification, AuditEvent,
@@ -2762,16 +2763,22 @@ def create_review(user, cid):
     if rtype not in REVIEW_TYPES:
         raise APIException(f"review_type must be one of {list(REVIEW_TYPES)}",
                            status_code=400)
-    review = review_engine.create_event_driven(
-        customer, trigger=body.get("trigger") or "Manual", actor=user) \
+    # A review brought forward by hand must say why (change of ownership, a
+    # tip-off, a press article…): the reason is the trigger, and it is audited.
+    reason = (body.get("reason") or "").strip()
+    if len(reason) < 5:
+        raise APIException("A reason (min 5 characters) is required to trigger a review", status_code=400)
+    trigger = (body.get("trigger") or f"Manual: {reason}")[:120]
+    review = review_engine.create_event_driven(customer, trigger=trigger, actor=user) \
         if rtype == "EVENT_DRIVEN_REVIEW" else None
     if review is None:
         review = Review(organization_id=customer.organization_id,
                         customer_id=cid, review_type=rtype, status="DUE",
-                        trigger=body.get("trigger") or "Manual",
-                        due_at=utcnow() + timedelta(days=14))
+                        trigger=trigger, due_at=utcnow() + timedelta(days=14))
         db.session.add(review)
         db.session.commit()
+    audit.record("REVIEW_TRIGGERED", "review", review.id, actor=user,
+                 new_value=rtype, reason=reason, commit=True)
     return jsonify(review.serialize()), 201
 
 
@@ -2799,8 +2806,100 @@ def complete_review(user, review_id):
     reason = (body.get("reason") or "").strip()
     if not reason:
         raise APIException("A reason is required", status_code=400)
+    if (decision or "").upper() == "APPROVED":
+        # Approval gate: mandatory data/documents, a screening run and no
+        # undecided match. Overridable — but only with a reason, audited.
+        customer = Customer.query.get(review.customer_id)
+        blockers = review_engine.approval_blockers(customer)
+        override = (body.get("override_reason") or "").strip()
+        if blockers and len(override) < 10:
+            raise APIException("The file is not ready to be approved", status_code=409,
+                               payload={"blockers": blockers})
+        if blockers:
+            audit.record("REVIEW_GATE_OVERRIDDEN", "review", review.id, actor=user,
+                         new_value="; ".join(b["code"] for b in blockers), reason=override, commit=True)
     review, nxt = review_engine.complete_review(review, decision, reason, actor=user)
     return jsonify({"review": review.serialize(), "next": nxt.serialize()}), 200
+
+
+@api.route("/customers/<int:cid>/risk-breakdown", methods=["GET"])
+@permission_required("customer.view")
+def customer_risk_breakdown(user, cid):
+    """Every factor, fired or not, with its origin — the detailed risk view."""
+    customer = _get_customer_for(user, cid)
+    return jsonify(risk_engine.breakdown(customer)), 200
+
+
+# ---------------------------------------------------------------------------
+# Analyst notes: one pinned analysis summary + a comment thread per file
+# ---------------------------------------------------------------------------
+def _notes_payload(cid):
+    rows = (CustomerNote.query.filter_by(customer_id=cid)
+            .order_by(CustomerNote.created_at.desc()).all())
+    ids = {r.author_id for r in rows if r.author_id}
+    authors = {u.id: u for u in User.query.filter(User.id.in_(ids)).all()} if ids else {}
+
+    def name(r):
+        u = authors.get(r.author_id)
+        return (u.full_name or u.email) if u else None
+    summary = next((r for r in rows if r.kind == "ANALYSIS_SUMMARY"), None)
+    return {"summary": summary.serialize(name(summary)) if summary else None,
+            "comments": [r.serialize(name(r)) for r in rows if r.kind == "COMMENT"]}
+
+
+@api.route("/customers/<int:cid>/notes", methods=["GET"])
+@permission_required("customer.view")
+def list_notes(user, cid):
+    _get_customer_for(user, cid)
+    return jsonify(_notes_payload(cid)), 200
+
+
+@api.route("/customers/<int:cid>/notes", methods=["POST"])
+@permission_required("kyc.edit", "kyc.review")
+def add_note(user, cid):
+    """COMMENT appends to the thread; ANALYSIS_SUMMARY replaces the single
+    pinned summary (its history lives in the audit trail)."""
+    customer = _get_customer_for(user, cid)
+    body = request.get_json(silent=True) or {}
+    kind = (body.get("kind") or "COMMENT").upper()
+    text = (body.get("text") or "").strip()
+    if kind not in NOTE_KINDS:
+        raise APIException(f"kind must be one of {list(NOTE_KINDS)}", status_code=400)
+    if not text or len(text) > 5000:
+        raise APIException("text is required (max 5000 characters)", status_code=400)
+    if kind == "ANALYSIS_SUMMARY":
+        note = CustomerNote.query.filter_by(customer_id=cid, kind=kind).first()
+        old = note.text if note else None
+        if note is None:
+            note = CustomerNote(organization_id=customer.organization_id, customer_id=cid, kind=kind, text=text)
+            db.session.add(note)
+        note.text, note.author_id = text, user.id
+        db.session.flush()
+        audit.record("NOTE_SUMMARY_UPDATED", "customer", cid, actor=user,
+                     old_value=(old or "")[:300], new_value=text[:300], reason="Analysis summary")
+    else:
+        note = CustomerNote(organization_id=customer.organization_id, customer_id=cid,
+                            author_id=user.id, kind=kind, text=text)
+        db.session.add(note)
+        db.session.flush()
+        audit.record("NOTE_ADDED", "customer", cid, actor=user, new_value=text[:300])
+    db.session.commit()
+    return jsonify(_notes_payload(cid)), 201
+
+
+@api.route("/customers/<int:cid>/notes/<int:nid>", methods=["DELETE"])
+@permission_required("kyc.edit", "kyc.review")
+def delete_note(user, cid, nid):
+    _get_customer_for(user, cid)
+    note = CustomerNote.query.filter_by(id=nid, customer_id=cid).first()
+    if note is None:
+        raise APIException("Note not found", status_code=404)
+    if note.author_id != user.id and not user.has_permission("kyc.approve"):
+        raise APIException("Only the author (or an approver) can delete a note", status_code=403)
+    audit.record("NOTE_DELETED", "customer", cid, actor=user, old_value=note.text[:300])
+    db.session.delete(note)
+    db.session.commit()
+    return jsonify(_notes_payload(cid)), 200
 
 
 # ---------------------------------------------------------------------------

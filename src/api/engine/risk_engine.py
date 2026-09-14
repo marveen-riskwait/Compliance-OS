@@ -156,6 +156,86 @@ def _required_actions(level, factors):
     return ordered
 
 
+_FLAG_ORIGIN = {
+    "is_pep": "PEP declaration in the KYC form (\"who is the PEP?\") or a PEP screening match",
+    "has_sanctions_match": "a confirmed sanctions match (Screening tab)",
+    "has_adverse_media": "adverse media found by screening / enrichment",
+    "complex_ownership": "the ownership structure (Relations tab: layers, trusts, many owners)",
+}
+_COUNTRY_ORIGIN = {
+    "country": "country given at creation", "residence": "country of residence (KYC form / person record)",
+    "nationality": "nationality (KYC form / person record)", "incorporation": "country of incorporation (KYC form)",
+    "principal_place_of_business": "principal place of business (KYC form)",
+    "registered_address": "registered-office address", "business_address": "business address",
+    "residential_address": "residential address",
+}
+
+
+def _condition_summary(f):
+    cv = f.condition_value or {}
+    if f.condition_type == "FLAG":
+        return f"when the file is flagged '{cv.get('field')}'"
+    if f.condition_type == "COUNTRY_IN":
+        n = len(cv.get("values") or [])
+        fields = cv.get("fields") or ["country"]
+        return f"when one of {n} listed countries appears as " + " / ".join(fields)
+    if f.condition_type == "ACTIVITY_IN":
+        return "when the business activity is one of: " + ", ".join(cv.get("values") or [])
+    return f.condition_type
+
+
+def _driven_by(f):
+    cv = f.condition_value or {}
+    if f.condition_type == "FLAG":
+        return _FLAG_ORIGIN.get(cv.get("field"), f"the '{cv.get('field')}' flag")
+    if f.condition_type == "COUNTRY_IN":
+        return "; ".join(_COUNTRY_ORIGIN.get(x, x) for x in (cv.get("fields") or ["country"]))
+    if f.condition_type == "ACTIVITY_IN":
+        return "business activity chosen at creation or in the KYC form (closed catalogue)"
+    return "—"
+
+
+def breakdown(customer):
+    """Every factor of the active methodology — fired or not — with what it
+    looks at, where that data comes from and what matched; plus the score
+    ladder and the assessment history. The Overview shows only the drivers;
+    this is the full picture a reviewer asked for."""
+    methodology = active_methodology(customer.organization_id)
+    rows, total = [], 0
+    if methodology and methodology.factors:
+        for f in sorted(methodology.factors, key=lambda x: (-x.impact, x.code)):
+            via = _factor_matches(f, customer) if f.active else None
+            if via:
+                total += f.impact
+            rows.append({"code": f.code, "label": f.label, "impact": f.impact, "active": f.active,
+                         "condition_type": f.condition_type, "condition": _condition_summary(f),
+                         "driven_by": _driven_by(f), "fired": bool(via), "via": via or None,
+                         "as_of": (f.condition_value or {}).get("as_of")})
+        thresholds = [{"level": t.level, "min": t.min_score, "max": t.max_score}
+                      for t in sorted(methodology.thresholds, key=lambda t: t.min_score)]
+        level = _level_from([(t["level"], t["min"], t["max"]) for t in thresholds] or _LEGACY_THRESHOLDS, total)
+        meth = {"name": methodology.name, "version": methodology.version,
+                "org_specific": methodology.organization_id is not None}
+    else:
+        for predicate, code, label, impact in _LEGACY_FACTORS:
+            fired = bool(predicate(customer))
+            if fired:
+                total += impact
+            rows.append({"code": code, "label": label, "impact": impact, "active": True,
+                         "condition_type": "LEGACY", "condition": label, "driven_by": "—",
+                         "fired": fired, "via": None, "as_of": None})
+        thresholds = [{"level": l, "min": lo, "max": hi} for l, lo, hi in _LEGACY_THRESHOLDS]
+        level = _level_from(_LEGACY_THRESHOLDS, total)
+        meth = {"name": "legacy defaults", "version": "legacy-v1", "org_specific": False}
+    history = (RiskAssessment.query.filter_by(customer_id=customer.id)
+               .order_by(RiskAssessment.created_at.desc()).limit(10).all())
+    return {"score": total, "level": level,
+            "stored_score": customer.risk_score, "stored_level": customer.risk_level,
+            "stale": total != customer.risk_score,
+            "methodology": meth, "thresholds": thresholds, "factors": rows,
+            "history": [a.serialize() for a in history]}
+
+
 def recompute(customer: Customer, *, actor=None, reason="Risk recomputed"):
     """Recompute risk for a customer, persist a new (versioned) assessment,
     update the denormalised fields and leave an audit trail.
