@@ -1034,6 +1034,12 @@ def add_ownership(user, cid):
             owned_party_id=body.get("owned_party_id"),
             link_party_id=link_party_id,
             actor=user,
+            date_of_birth=body.get("date_of_birth"),
+            nationalities=(body.get("nationalities")
+                           if isinstance(body.get("nationalities"), list)
+                           else [x for x in str(body.get("nationalities") or "").split(",") if x.strip()]),
+            gender=body.get("gender"),
+            address=body.get("address") if isinstance(body.get("address"), dict) else None,
         )
     except ValueError as exc:
         raise APIException(str(exc), status_code=400)

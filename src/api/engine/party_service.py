@@ -1,3 +1,4 @@
+from datetime import datetime
 """Party service — KYB mutations that feed the compliance spine.
 
 Adding an owner/director or changing an address is DATA; this service turns it
@@ -182,10 +183,36 @@ def _ubo_snapshot(customer):
     return {u["party"]["name"] for u in ownership.compute_ubos(customer) if u["is_ubo"]}
 
 
+def structure_party_ids(customer):
+    """Every party reachable upward from the customer's root through active
+    ownership/control edges — i.e. the entities that belong to THIS file's
+    structure. Used to scope `owned_party_id`."""
+    root = ensure_root_party(customer)
+    seen, frontier = {root.id}, [root.id]
+    while frontier:
+        rows = (OwnershipRelationship.query
+                .filter(OwnershipRelationship.owned_party_id.in_(frontier),
+                        OwnershipRelationship.active.is_(True)).all())
+        frontier = [r.owner_party_id for r in rows if r.owner_party_id not in seen]
+        seen.update(frontier)
+    return seen
+
+
+def _iso_list(values):
+    out = []
+    for v in (values or []):
+        code = normalize_or_keep(v)
+        if code and code not in out:
+            out.append(code)
+    return out
+
+
 def add_related_party(customer, *, owner_name=None, owner_kind="PERSON",
                       relationship_type="SHAREHOLDER", percentage=0.0,
                       control_type=None, country=None, nationality=None,
-                      owned_party_id=None, link_party_id=None, actor=None):
+                      owned_party_id=None, link_party_id=None, actor=None,
+                      date_of_birth=None, nationalities=None, gender=None,
+                      address=None):
     """Add an owner/director edge and emit the right change events.
 
     If `link_party_id` is given, the edge REUSES that existing party (identity
@@ -195,6 +222,12 @@ def add_related_party(customer, *, owner_name=None, owner_kind="PERSON",
     root = ensure_root_party(customer)
     ubos_before = _ubo_snapshot(customer)
 
+    # An intermediate holding: the new owner sits above an entity of THIS
+    # structure, never above an arbitrary party of the organisation.
+    if owned_party_id and int(owned_party_id) != root.id:
+        if int(owned_party_id) not in structure_party_ids(customer):
+            raise ValueError("Target entity is not part of this customer's structure")
+
     if link_party_id:
         owner = Party.query.get(link_party_id)
         if owner is None or owner.organization_id != customer.organization_id:
@@ -202,15 +235,41 @@ def add_related_party(customer, *, owner_name=None, owner_kind="PERSON",
         owner_name = owner.name          # for the audit/event narrative
     else:
         cls = _party_class(owner_kind)
+        nats = _iso_list(nationalities) if cls is Person else []
+        primary = nats[0] if nats else normalize_or_keep(nationality)
+        if primary and primary not in nats and cls is Person:
+            nats.insert(0, primary)
+        dob = None
+        if date_of_birth and cls is Person:
+            try:
+                dob = datetime.strptime(str(date_of_birth)[:10], "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("date_of_birth must be a date formatted YYYY-MM-DD")
         owner = cls(
             organization_id=customer.organization_id,
             name=owner_name,
-            nationality=normalize_or_keep(nationality),
+            nationality=primary,
+            nationalities=nats or None,
+            gender=(gender or "").strip().upper()[:20] or None if cls is Person else None,
+            date_of_birth=dob,
             country_of_residence=normalize_or_keep(country) if cls is Person else None,
             country_of_incorporation=normalize_or_keep(country) if cls is LegalEntity else None,
         )
         db.session.add(owner)
         db.session.flush()
+        # An optional first address goes into the same history-keeping table
+        # the rest of the platform reads (address type follows the party kind).
+        line1 = ((address or {}).get("line1") or "").strip()
+        if line1:
+            db.session.add(Address(
+                organization_id=customer.organization_id, party_id=owner.id,
+                address_type=(address.get("address_type")
+                              or ("RESIDENTIAL" if cls is Person else "REGISTERED")),
+                line1=line1, line2=(address.get("line2") or None),
+                city=(address.get("city") or None),
+                postal_code=(address.get("postal_code") or None),
+                country=normalize_or_keep(address.get("country")),
+            ))
 
     edge = OwnershipRelationship(
         organization_id=customer.organization_id,

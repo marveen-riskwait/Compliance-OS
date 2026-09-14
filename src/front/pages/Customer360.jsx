@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../services/api";
 import useGlobalReducer from "../hooks/useGlobalReducer";
 import { can } from "../permissions/can";
@@ -55,10 +55,19 @@ const TABS = [
   { key: "completeness", label: "Completeness", icon: "fa-list-check" },
 ];
 
+const EDGE_LABELS = {
+  SHAREHOLDER: "Shareholder", DIRECTOR: "Director", UBO: "UBO (declared)", CONTROL: "Control",
+  AUTHORIZED_REP: "Authorised representative", SETTLOR: "Settlor", TRUSTEE: "Trustee",
+  PROTECTOR: "Protector", BENEFICIARY: "Beneficiary",
+};
+export const edgeLabel = (t) => EDGE_LABELS[t] || (t || "").toLowerCase();
+
 // Render "who owns X" as a nested tree from the ownership edges.
 // onRemove (optional): deactivates an erroneous edge — a FALSE_POSITIVE case
 // decision never rewrites KYB data, this is how staff corrects the graph.
-const OwnershipTree = ({ nodeId, nodes, edges, factor = 1, depth = 0, onRemove }) => {
+// onAddOwner (optional): "add an owner OF this entity" — intermediate holdings
+// are added above the entity they own, not always above the root.
+const OwnershipTree = ({ nodeId, nodes, edges, factor = 1, depth = 0, onRemove, onAddOwner, backState }) => {
   const node = nodes.find((n) => n.id === nodeId);
   if (!node) return null;
   const owners = edges.filter((e) => e.owned_party_id === nodeId);
@@ -66,22 +75,31 @@ const OwnershipTree = ({ nodeId, nodes, edges, factor = 1, depth = 0, onRemove }
     <div style={{ marginLeft: depth ? 16 : 0, paddingLeft: depth ? 10 : 0, borderLeft: depth ? "2px solid var(--co-border)" : "none" }}>
       <div style={{ padding: ".2rem 0" }}>
         <i className={`fa-solid ${node.kind === "PERSON" ? "fa-user" : "fa-building"}`} style={{ color: "var(--co-muted)", marginRight: 6 }} />
-        <Link to={`/parties/${node.id}`} style={{ fontWeight: 700 }}>{node.name}</Link>
+        <Link to={`/parties/${node.id}`} state={backState} style={{ fontWeight: 700 }}>{node.name}</Link>
         {node.kind === "ORGANIZATION" && node.country_of_incorporation ? (
           <span className="muted" style={{ fontSize: ".8rem" }}> · {node.country_of_incorporation}</span>
         ) : null}
+        {onAddOwner && node.kind !== "PERSON" && (
+          <button type="button" className="btn btn-link btn-sm p-0 ms-2" style={{ fontSize: ".78rem" }}
+            title="Add an owner or controller of this entity (intermediate holding)"
+            onClick={() => onAddOwner(node)}>
+            <i className="fa-solid fa-plus" /> owner
+          </button>
+        )}
       </div>
       {owners.map((e) => (
         <div key={e.id}>
           <div style={{ marginLeft: 16, fontSize: ".82rem", color: "var(--co-muted)" }}>
-            ▲ owns {e.percentage}% {e.relationship_type !== "SHAREHOLDER" ? `(${e.relationship_type})` : ""}
+            ▲ <span className="chip INFO" style={{ fontSize: ".62rem" }}>{edgeLabel(e.relationship_type)}</span>
+            {e.percentage ? ` ${e.percentage}%` : ""}{e.control_type ? ` · ${e.control_type.toLowerCase().replace(/_/g, " ")}` : ""}
             {onRemove && (
               <button type="button" className="kf-doc-remove"
                 title="Remove this link (audited — the graph and UBOs recompute)"
                 onClick={() => onRemove(e)}>×</button>
             )}
           </div>
-          <OwnershipTree nodeId={e.owner_party_id} nodes={nodes} edges={edges} depth={depth + 1} onRemove={onRemove} />
+          <OwnershipTree nodeId={e.owner_party_id} nodes={nodes} edges={edges} depth={depth + 1}
+            onRemove={onRemove} onAddOwner={onAddOwner} backState={backState} />
         </div>
       ))}
     </div>
@@ -102,7 +120,8 @@ export const Customer360 = () => {
   const [idvNote, setIdvNote] = useState(null);
   const [error, setError] = useState(null);
   const [screening, setScreening] = useState(false);
-  const [ownerForm, setOwnerForm] = useState({ owner_name: "", owner_kind: "PERSON", relationship_type: "SHAREHOLDER", percentage: "", country: "" });
+  const EMPTY_OWNER = { owner_name: "", owner_kind: "PERSON", relationship_type: "SHAREHOLDER", percentage: "", country: "", owned_party_id: null, owned_party_name: "", date_of_birth: "", nationalities: [], gender: "", address: { line1: "", city: "", postal_code: "", country: "" } };
+  const [ownerForm, setOwnerForm] = useState(EMPTY_OWNER);
   const [ownerCands, setOwnerCands] = useState([]);   // existing actors that match the typed name
   const [relations, setRelations] = useState(null);    // cross-entity relations (Relations tab)
   const [groupRisk, setGroupRisk] = useState(null);    // aggregated risk across the economic group
@@ -121,7 +140,10 @@ export const Customer360 = () => {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [openingChat, setOpeningChat] = useState(false);
   const [showPortalAccess, setShowPortalAccess] = useState(false);
-  const [tab, setTab] = useState("overview");              // active customer-file tab
+  const [params, setParams] = useSearchParams();
+  const [tab, setTabState] = useState(params.get("tab") || "overview");   // active customer-file tab, mirrored in ?tab=
+  const setTab = (t) => { setTabState(t); setParams(t === "overview" ? {} : { tab: t }, { replace: true }); };
+  useEffect(() => { const t = params.get("tab"); if (t && t !== tab) setTabState(t); }, [params]);   // eslint-disable-line
 
   // The client conversation belongs to the customer file: opening it joins the
   // team room rather than starting a private thread with whoever clicked.
@@ -235,8 +257,10 @@ export const Customer360 = () => {
     e.preventDefault();
     setError(null);
     try {
-      await api.addOwnership(id, { ...ownerForm, percentage: Number(ownerForm.percentage) || 0 });
-      setOwnerForm({ owner_name: "", owner_kind: "PERSON", relationship_type: "SHAREHOLDER", percentage: "", country: "" });
+      const { owned_party_name, address, ...rest } = ownerForm;
+      await api.addOwnership(id, { ...rest, percentage: Number(ownerForm.percentage) || 0,
+        address: address.line1 ? address : undefined });
+      setOwnerForm(EMPTY_OWNER);
       setOwnerCands([]);
       await load(); loadKyb();
     } catch (err) { setError(err.message); }
@@ -272,7 +296,7 @@ export const Customer360 = () => {
         relationship_type: ownerForm.relationship_type,
         percentage: Number(ownerForm.percentage) || 0,
       });
-      setOwnerForm({ owner_name: "", owner_kind: "PERSON", relationship_type: "SHAREHOLDER", percentage: "", country: "" });
+      setOwnerForm(EMPTY_OWNER);
       setOwnerCands([]);
       await load(); loadKyb();
     } catch (err) { setError(err.message); }
@@ -636,9 +660,12 @@ export const Customer360 = () => {
     </div>
   );
 
+  const backState = { back: { path: `/customers/${id}?tab=relations`, label: `${customer.name} · Relations` } };
+  const controlEdges = (graph?.graph?.edges || []).filter((e) => ["CONTROL", "AUTHORIZED_REP"].includes(e.relationship_type))
+    .map((e) => ({ ...e, owner: (graph.graph.nodes || []).find((n) => n.id === e.owner_party_id) }));
   const ownershipCard = (
     <div className="co-card">
-      <div className="section-title">Ownership &amp; UBOs</div>
+      <div className="section-title">Ownership &amp; Control</div>
       {ubos.length === 0 && (
         <div className="muted" style={{ fontSize: ".88rem" }}>
           No ownership structure recorded.
@@ -650,9 +677,10 @@ export const Customer360 = () => {
             <div className="work-row" key={u.party.id}>
               <span className={`dotsev ${u.is_ubo ? "HIGH" : "INFO"}`} />
               <div className="grow">
-                <div className="title"><Link to={`/parties/${u.party.id}`}>{u.party.name}</Link></div>
+                <div className="title"><Link to={`/parties/${u.party.id}`} state={backState}>{u.party.name}</Link></div>
                 <div className="meta">
-                  {u.party.nationality || "—"}
+                  {(u.party.nationalities_names || []).join(" / ") || u.party.nationality_name || u.party.nationality || "—"}
+                  {u.party.date_of_birth ? ` · born ${u.party.date_of_birth.slice(0, 10)}` : ""}
                   {u.roles && u.roles.length > 0
                     ? ` · ${u.roles.map((r) => r.toLowerCase()).join(", ")}`
                     : u.via_control ? " · control" : ""}
@@ -667,7 +695,7 @@ export const Customer360 = () => {
       )}
       {graph && graph.directors && graph.directors.length > 0 && (
         <div style={{ marginTop: ".5rem" }}>
-          <div className="muted" style={{ fontSize: ".78rem", marginBottom: ".2rem" }}>Directors</div>
+          <div className="muted" style={{ fontSize: ".78rem", marginBottom: ".2rem" }}>Control — directors</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: ".35rem" }}>
             {graph.directors.map((d) => (
               <span key={d.id} className="chip INFO">
@@ -682,15 +710,37 @@ export const Customer360 = () => {
           </div>
         </div>
       )}
+      {controlEdges.length > 0 && (
+        <div style={{ marginTop: ".5rem" }}>
+          <div className="muted" style={{ fontSize: ".78rem", marginBottom: ".2rem" }}>Control — other means</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: ".35rem" }}>
+            {controlEdges.map((e) => (
+              <span key={e.id} className="chip INFO">
+                <i className="fa-solid fa-gavel" /> {e.owner?.name || `Party ${e.owner_party_id}`}
+                {" · "}{edgeLabel(e.relationship_type)}{e.control_type ? ` (${e.control_type.toLowerCase().replace(/_/g, " ")})` : ""}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       {graph && graph.graph && graph.graph.root_id && (
         <div style={{ fontSize: ".9rem", marginTop: ".4rem" }}>
           <div className="muted" style={{ fontSize: ".78rem", marginBottom: ".2rem" }}>Structure</div>
           <OwnershipTree nodeId={graph.graph.root_id} nodes={graph.graph.nodes} edges={graph.graph.edges}
-            onRemove={can(store.user, "kyb.edit") ? removeOwner : null} />
+            onRemove={can(store.user, "kyb.edit") ? removeOwner : null}
+            onAddOwner={can(store.user, "kyb.edit") ? (node) => setOwnerForm({ ...ownerForm, owned_party_id: node.id === graph.graph.root_id ? null : node.id, owned_party_name: node.name }) : null}
+            backState={backState} />
         </div>
       )}
       {can(store.user, "kyb.edit") && (
         <>
+        {ownerForm.owned_party_id && (
+          <div className="alert alert-info py-1 px-2 mt-3 mb-0" style={{ fontSize: ".82rem" }}>
+            <i className="fa-solid fa-sitemap" /> Adding an owner / controller of <b>{ownerForm.owned_party_name}</b> (intermediate holding)
+            <button type="button" className="btn btn-link btn-sm p-0 ms-2" style={{ fontSize: ".8rem" }}
+              onClick={() => setOwnerForm({ ...ownerForm, owned_party_id: null, owned_party_name: "" })}>back to the customer itself</button>
+          </div>
+        )}
         <form onSubmit={submitOwner} className="row g-1 align-items-end" style={{ marginTop: ".75rem", borderTop: "1px solid var(--co-border)", paddingTop: ".6rem" }}>
           <div className="col-12 col-md-3">
             <input className="form-control form-control-sm" placeholder="Name" required
@@ -724,6 +774,59 @@ export const Customer360 = () => {
           <div className="col-6 col-md-2">
             <button className="btn btn-sm btn-co w-100">Add</button>
           </div>
+          {ownerForm.owner_kind === "PERSON" && (
+            <>
+              <div className="col-12 muted" style={{ fontSize: ".75rem", marginTop: ".35rem" }}>
+                Identity — optional, but it is what tells one “John Smith” from another in screening:
+              </div>
+              <div className="col-6 col-md-2">
+                <label className="form-label mb-0" style={{ fontSize: ".72rem" }}>Date of birth</label>
+                <input className="form-control form-control-sm" type="date" value={ownerForm.date_of_birth}
+                  onChange={(e) => setOwnerForm({ ...ownerForm, date_of_birth: e.target.value })} />
+              </div>
+              <div className="col-6 col-md-3">
+                <label className="form-label mb-0" style={{ fontSize: ".72rem" }}>Nationalities</label>
+                <CountrySelect size="sm" value="" placeholder="— add a nationality —"
+                  onChange={(code) => code && !ownerForm.nationalities.includes(code) && setOwnerForm({ ...ownerForm, nationalities: [...ownerForm.nationalities, code] })} />
+                {ownerForm.nationalities.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: ".25rem", marginTop: ".25rem" }}>
+                    {ownerForm.nationalities.map((c) => (
+                      <span key={c} className="chip INFO">{c}
+                        <button type="button" className="kf-doc-remove" title="Remove"
+                          onClick={() => setOwnerForm({ ...ownerForm, nationalities: ownerForm.nationalities.filter((x) => x !== c) })}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="col-6 col-md-3">
+                <label className="form-label mb-0" style={{ fontSize: ".72rem" }}>Country of residence</label>
+                <CountrySelect size="sm" value={ownerForm.country || ""} onChange={(code) => setOwnerForm({ ...ownerForm, country: code })} />
+              </div>
+              <div className="col-6 col-md-2">
+                <label className="form-label mb-0" style={{ fontSize: ".72rem" }}>Gender</label>
+                <select className="form-select form-select-sm" value={ownerForm.gender}
+                  onChange={(e) => setOwnerForm({ ...ownerForm, gender: e.target.value })}>
+                  <option value="">—</option><option value="F">Female</option><option value="M">Male</option><option value="X">Other / not stated</option>
+                </select>
+              </div>
+              <div className="col-12" style={{ marginTop: ".35rem" }}>
+                <details>
+                  <summary className="muted" style={{ fontSize: ".78rem", cursor: "pointer" }}>Address (optional)</summary>
+                  <div className="row g-1 mt-1">
+                    <div className="col-12 col-md-5"><input className="form-control form-control-sm" placeholder="Street and number" value={ownerForm.address.line1}
+                      onChange={(e) => setOwnerForm({ ...ownerForm, address: { ...ownerForm.address, line1: e.target.value } })} /></div>
+                    <div className="col-6 col-md-2"><input className="form-control form-control-sm" placeholder="Postal code" value={ownerForm.address.postal_code}
+                      onChange={(e) => setOwnerForm({ ...ownerForm, address: { ...ownerForm.address, postal_code: e.target.value } })} /></div>
+                    <div className="col-6 col-md-2"><input className="form-control form-control-sm" placeholder="City" value={ownerForm.address.city}
+                      onChange={(e) => setOwnerForm({ ...ownerForm, address: { ...ownerForm.address, city: e.target.value } })} /></div>
+                    <div className="col-12 col-md-3"><CountrySelect size="sm" value={ownerForm.address.country}
+                      onChange={(code) => setOwnerForm({ ...ownerForm, address: { ...ownerForm.address, country: code } })} /></div>
+                  </div>
+                </details>
+              </div>
+            </>
+          )}
         </form>
         {ownerCands.length > 0 && (
           <div className="party-cands">
@@ -736,6 +839,7 @@ export const Customer360 = () => {
                   <div className="title">
                     {c.name}
                     <span className="chip INFO" style={{ marginLeft: 6, fontSize: ".62rem" }}>{c.match_score}%</span>
+                    {c.customer_id && <span className="chip LOW" style={{ marginLeft: 4, fontSize: ".62rem" }} title="This actor is itself a customer file — linking it connects the two files into one group"><i className="fa-solid fa-folder" /> customer file</span>}
                     {c.is_pep && <span className="chip HIGH" style={{ marginLeft: 4, fontSize: ".62rem" }}>PEP</span>}
                   </div>
                   <div className="meta">
@@ -817,7 +921,7 @@ export const Customer360 = () => {
                   <span className={`dotsev ${b.is_pep ? "HIGH" : "INFO"}`} />
                   <div className="grow">
                     <div className="title">
-                      <Link to={`/parties/${b.party_id}`}>{b.name}</Link>
+                      <Link to={`/parties/${b.party_id}`} state={backState}>{b.name}</Link>
                       {b.is_pep && (
                         <span className="chip HIGH" style={{ marginLeft: 6 }}>
                           PEP{b.pep_type ? ` · ${b.pep_type}` : ""}
@@ -937,7 +1041,7 @@ export const Customer360 = () => {
               {c.via.map((v, i) => (
                 <span key={v.party_id}>
                   {i > 0 ? ", " : ""}
-                  <Link to={`/parties/${v.party_id}`}>{v.name}</Link>
+                  <Link to={`/parties/${v.party_id}`} state={backState}>{v.name}</Link>
                 </span>
               ))}
             </div>
@@ -1063,7 +1167,7 @@ export const Customer360 = () => {
       {partyDocGroups.map((g) => (
         <div key={g.party_id} style={{ marginBottom: ".7rem" }}>
           <div className="title" style={{ fontWeight: 600, marginBottom: ".2rem" }}>
-            <Link to={`/parties/${g.party_id}`}>{g.name || `Party ${g.party_id}`}</Link>
+            <Link to={`/parties/${g.party_id}`} state={{ back: { path: `/customers/${id}?tab=completeness`, label: `${customer.name} · Completeness` } }}>{g.name || `Party ${g.party_id}`}</Link>
           </div>
           {g.reqs.map((r) => (
             <div className="work-row" key={r.id}>

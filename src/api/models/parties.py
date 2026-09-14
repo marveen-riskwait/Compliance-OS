@@ -33,6 +33,7 @@ UBO_THRESHOLD = 25.0
 
 
 from api.catalogues.countries import country_name  # noqa: E402
+from sqlalchemy import JSON  # noqa: E402
 from api.catalogues.activities import activity_label  # noqa: E402
 
 
@@ -51,6 +52,10 @@ class Party(db.Model):
     date_of_birth: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     nationality: Mapped[str] = mapped_column(String(80), nullable=True)
     country_of_residence: Mapped[str] = mapped_column(String(80), nullable=True)
+    # Several nationalities are common (and each one matters for screening);
+    # `nationality` stays the primary one so nothing downstream changes.
+    nationalities: Mapped[list] = mapped_column(JSON, nullable=True)
+    gender: Mapped[str] = mapped_column(String(20), nullable=True)   # F / M / X — optional, never inferred
 
     # Organization attributes
     registration_number: Mapped[str] = mapped_column(String(80), nullable=True)
@@ -82,6 +87,9 @@ class Party(db.Model):
             "date_of_birth": self.date_of_birth.isoformat() if self.date_of_birth else None,
             "nationality": self.nationality,
             "nationality_name": country_name(self.nationality),
+            "nationalities": list(self.nationalities or ([self.nationality] if self.nationality else [])),
+            "nationalities_names": [country_name(c) for c in (self.nationalities or ([self.nationality] if self.nationality else []))],
+            "gender": self.gender,
             "country_of_residence": self.country_of_residence,
             "country_of_residence_name": country_name(self.country_of_residence),
             "registration_number": self.registration_number,
