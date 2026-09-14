@@ -74,7 +74,10 @@ async function request(path, { method = "GET", body } = {}) {
   let data = {};
   try { data = await res.json(); } catch (e) { data = {}; }
   if (!res.ok) {
-    throw new Error(data.message || `Request failed (${res.status})`);
+    const err = new Error(data.message || `Request failed (${res.status})`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
   }
   return data;
 }
@@ -115,7 +118,7 @@ export const api = {
 
   // customers
   customers: (archived) => request(`/customers${archived ? "?archived=1" : ""}`),
-  nameSuggestions: (q) => request(`/name-suggestions?q=${encodeURIComponent(q)}`),
+  nameSuggestions: (q, customerType) => request(`/name-suggestions?q=${encodeURIComponent(q)}${customerType ? `&customer_type=${encodeURIComponent(customerType)}` : ""}`),
   createCustomer: (payload) => request("/customers", { method: "POST", body: payload }),
   setCustomerLegalForm: (id, legal_form) => request(`/customers/${id}/legal-form`, { method: "PATCH", body: { legal_form } }),
   customer: (id) => request(`/customers/${id}`),

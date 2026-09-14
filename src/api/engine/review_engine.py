@@ -69,6 +69,11 @@ def complete_review(review, decision, reason, actor=None):
     review.decision_reason = reason
     customer = Customer.query.get(review.customer_id)
     customer.last_review_at = utcnow()
+    # An approved initial KYC is what turns an onboarding file into an active
+    # relationship; a rejection leaves it in onboarding for remediation.
+    if review.review_type == "INITIAL_KYC" and customer.status in ("ONBOARDING", "SUBMITTED"):
+        if (decision or "").upper() == "APPROVED":
+            customer.status = "ACTIVE"
     audit.record("REVIEW_COMPLETED", "review", review.id, actor=actor,
                  new_value=decision, reason=reason)
 
@@ -83,6 +88,77 @@ def complete_review(review, decision, reason, actor=None):
     db.session.add(nxt)
     db.session.commit()
     return review, nxt
+
+
+ONBOARDING_LABELS = {
+    "NOT_STARTED": "Onboarding — not started",
+    "PENDING_REVIEW": "Onboarding — awaiting review",
+    "SUBMITTED": "Onboarding — submitted by the customer, awaiting review",
+    "IN_REVIEW": "Onboarding — under review",
+    "APPROVED": "Onboarded",
+    "REJECTED": "Onboarding — rejected, remediation needed",
+    "ARCHIVED": "Archived",
+}
+
+
+def onboarding_summaries(customers):
+    """{customer_id: {"onboarding": {...}, "valid_until": iso|None}} for a
+    list of customers in two queries — cheap enough for the book view.
+
+    The onboarding state is derived from the INITIAL_KYC review (there is no
+    separate approval object); "valid until" is the date the next periodic
+    review is scheduled — the file is considered current until then."""
+    ids = [c.id for c in customers]
+    if not ids:
+        return {}
+    initial = {}
+    for r in (Review.query.filter(Review.customer_id.in_(ids),
+                                  Review.review_type == "INITIAL_KYC")
+              .order_by(Review.created_at.desc()).all()):
+        initial.setdefault(r.customer_id, r)          # newest first
+    nxt = {}
+    for r in (Review.query.filter(Review.customer_id.in_(ids),
+                                  Review.review_type == "PERIODIC_REVIEW",
+                                  Review.status.in_(["SCHEDULED", "DUE", "OVERDUE", "IN_PROGRESS"]))
+              .order_by(Review.scheduled_for.asc(), Review.due_at.asc()).all()):
+        nxt.setdefault(r.customer_id, r)              # earliest first
+    now = utcnow()
+    out = {}
+    for c in customers:
+        r = initial.get(c.id)
+        if c.status == "ARCHIVED":
+            state = "ARCHIVED"
+        elif r is None:
+            state = "NOT_STARTED"
+        elif r.status == "COMPLETED":
+            state = "APPROVED" if (r.decision or "").upper() == "APPROVED" else "REJECTED"
+        elif r.status == "IN_PROGRESS":
+            state = "IN_REVIEW"
+        else:
+            state = "SUBMITTED" if c.status == "SUBMITTED" else "PENDING_REVIEW"
+        n = nxt.get(c.id)
+        valid_until = None
+        lapsed = False
+        if state == "APPROVED" and n is not None:
+            valid_until = n.scheduled_for or n.due_at
+            lapsed = n.status == "OVERDUE" or (n.due_at is not None and n.due_at < now)
+        out[c.id] = {
+            "onboarding": {
+                "state": state,
+                "label": ONBOARDING_LABELS.get(state, state),
+                "review_id": r.id if r else None,
+                "review_status": r.status if r else None,
+                "decided_at": r.completed_at.isoformat() if (r and r.completed_at) else None,
+                "due_at": r.due_at.isoformat() if (r and r.due_at and r.status != "COMPLETED") else None,
+            },
+            "valid_until": valid_until.isoformat() if valid_until else None,
+            "validity_lapsed": lapsed,
+        }
+    return out
+
+
+def onboarding_summary(customer):
+    return onboarding_summaries([customer]).get(customer.id)
 
 
 def start_review(review, actor=None):

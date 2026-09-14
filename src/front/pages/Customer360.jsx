@@ -9,6 +9,7 @@ import { RowMenu } from "../components/RowMenu";
 import { DocumentReview } from "../components/DocumentReview";
 import { PortalAccess } from "../components/PortalAccess";
 import { MatchDetails } from "../components/MatchDetails";
+import { onboardingChip } from "../components/NameSuggest";
 import { CountrySelect } from "../components/Catalogues";
 
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString() : "—");
@@ -1230,6 +1231,7 @@ export const Customer360 = () => {
               {customer.business_activity ? ` · ${customer.business_activity_label || customer.business_activity}` : ""}
               {customer.business_activity_detail ? ` (${customer.business_activity_detail})` : ""}
             </span>
+            {onboardingChip(customer)}
             {customer.sdd && (
               <span className="chip INFO" title="Listed on a regulated market with free float — simplified due diligence applies">
                 Simplified DD

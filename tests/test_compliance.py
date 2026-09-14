@@ -42,7 +42,7 @@ def test_high_risk_pulls_in_edd_requirements(client, tokens):
     from api.engine import country_risk
     country_risk.sync(prefer_live=False)
     created = client.post("/api/customers",
-                          json={"name": "Ivan Ivanov", "country": "Iran",
+                          json={"allow_duplicate": True, "name": "Ivan Ivanov", "country": "Iran",
                                 "customer_type": "INDIVIDUAL"},
                           headers=auth(to)).get_json()
     cid = created["id"]
@@ -72,7 +72,7 @@ def test_clearing_every_match_closes_the_case_and_resolves_the_alerts(client, to
 
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"name": "Sergei Ivanov", "customer_type": "INDIVIDUAL",
+                      json={"allow_duplicate": True, "name": "Sergei Ivanov", "customer_type": "INDIVIDUAL",
                             "country": "Russia"}).get_json()["id"]
     client.post(f"/api/customers/{cid}/screen", headers=auth(to))
 
@@ -101,7 +101,7 @@ def test_a_case_stays_open_while_one_match_is_still_active(client, tokens):
 
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"name": "Sergei Ivanov", "customer_type": "INDIVIDUAL",
+                      json={"allow_duplicate": True, "name": "Sergei Ivanov", "customer_type": "INDIVIDUAL",
                             "country": "Russia"}).get_json()["id"]
     client.post(f"/api/customers/{cid}/screen", headers=auth(to))
     matches = ScreeningMatch.query.filter_by(customer_id=cid).all()
@@ -122,7 +122,7 @@ def test_requirements_exist_from_the_moment_a_customer_does(client, tokens):
 
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"country": "LU", "name": "Fresh Materialised Co",
+                      json={"allow_duplicate": True, "country": "LU", "name": "Fresh Materialised Co",
                             "customer_type": "COMPANY"}).get_json()["id"]
     assert RequirementInstance.query.filter_by(customer_id=cid).count() > 0
 
@@ -134,7 +134,7 @@ def test_information_request_task_closes_when_the_item_arrives(client, tokens):
 
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"country": "LU", "name": "Chased Client", "customer_type": "INDIVIDUAL"}
+                      json={"allow_duplicate": True, "country": "LU", "name": "Chased Client", "customer_type": "INDIVIDUAL"}
                       ).get_json()["id"]
     client.post(f"/api/customers/{cid}/request-info", headers=auth(to))
     chase = (Task.query.filter_by(customer_id=cid, task_type="INFORMATION_REQUEST")
@@ -161,7 +161,7 @@ def test_many_findings_one_investigation(client, tokens, app):
 
     to = tokens["officer@test.io"]
     cid = client.post("/api/customers", headers=auth(to),
-                      json={"country": "LU", "name": "Common Name Person",
+                      json={"allow_duplicate": True, "country": "LU", "name": "Common Name Person",
                             "customer_type": "INDIVIDUAL"}).get_json()["id"]
 
     with app.app_context():

@@ -6,7 +6,7 @@ screening -> event -> rules -> risk -> case/task/notification -> (human) decisio
 """
 import os
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from flask import request, jsonify, Blueprint, Response
 from flask_cors import CORS
@@ -33,6 +33,7 @@ from api.auth import (
     hash_password, verify_password, make_token, current_user,
     login_required, role_required, permission_required, has_permission,
 )
+from api.catalogues.countries import country_name
 from api.catalogues import (to_iso2, to_activity_code, catalogues,
                             activity_from_nace, normalise_form_value)
 from api.engine import (risk_engine, audit, ownership, data_scope, workload,
@@ -563,7 +564,10 @@ def list_customers(user):
              else query.filter(Customer.status != "ARCHIVED"))
     customers = query.order_by(Customer.risk_score.desc(),
                                Customer.created_at.desc()).all()
-    return jsonify([c.serialize() for c in customers]), 200
+    # Onboarding state and "valid until" on every row: the book view must
+    # say at a glance which files are onboarded and until when.
+    extra = review_engine.onboarding_summaries(customers)
+    return jsonify([{**c.serialize(), **extra.get(c.id, {})} for c in customers]), 200
 
 
 def _country_or_400(value, *, required=False, field="country"):
@@ -579,6 +583,33 @@ def _country_or_400(value, *, required=False, field="country"):
             f"{field} must be an ISO 3166-1 alpha-2 code or a recognised country "
             f"name (got {str(value)[:40]!r})", status_code=400)
     return code
+
+
+def _date_or_400(value, *, field):
+    """A date (YYYY-MM-DD) or None; 400 on garbage."""
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        return datetime.strptime(str(value).strip()[:10], "%Y-%m-%d").date()
+    except ValueError:
+        raise APIException(f"{field} must be a date formatted YYYY-MM-DD", status_code=400)
+
+
+def _norm_name(name):
+    return " ".join((name or "").lower().split())
+
+
+def _same_name_customers(organization_id, name, customer_type):
+    norm = _norm_name(name)
+    if not norm:
+        return []
+    rows = (Customer.query
+            .filter(Customer.organization_id == organization_id,
+                    Customer.customer_type == customer_type,
+                    Customer.status != "ARCHIVED",
+                    func.lower(Customer.name).like(f"%{norm.split()[0]}%"))
+            .all())
+    return [c for c in rows if _norm_name(c.name) == norm]
 
 
 def _activity_from_body(body):
@@ -663,6 +694,26 @@ def create_customer(user):
     # risk, sanctions lists and public registries all join on it.
     country = _country_or_400(body.get("country"), required=True)
     activity, activity_detail = _activity_from_body(body)
+    dob = _date_or_400(body.get("date_of_birth"), field="date_of_birth")
+    # Duplicate guard: the same name (spacing/case-insensitive) and type in
+    # the active book is almost always the same client. Two people can share a
+    # name, so a different date of birth lets the homonym through; otherwise
+    # the caller must say `allow_duplicate` explicitly — and gets the existing
+    # file(s) back to open instead.
+    if not body.get("allow_duplicate"):
+        existing = _same_name_customers(user.organization_id, name, ctype)
+        if existing:
+            def _other_person(c):
+                p = party_service.root_party_of(c)
+                return p is not None and p.date_of_birth is not None and p.date_of_birth.date() != dob
+            homonym = dob is not None and all(_other_person(c) for c in existing)
+            if not homonym:
+                summaries = review_engine.onboarding_summaries(existing)
+                raise APIException(
+                    f"A file already exists for '{existing[0].name}' — open it instead of creating "
+                    f"a duplicate, or confirm this is a different {ctype.lower()}.",
+                    status_code=409,
+                    payload={"existing": [{**c.serialize(), **summaries.get(c.id, {})} for c in existing]})
     customer = Customer(
         organization_id=user.organization_id,
         customer_type=ctype,
@@ -676,6 +727,11 @@ def create_customer(user):
     )
     db.session.add(customer)
     db.session.flush()
+    if dob is not None and ctype == "INDIVIDUAL":
+        # Identity attributes live on the root party (shared with screening
+        # and the ownership graph), not on the customer row.
+        root = party_service.ensure_root_party(customer)
+        root.date_of_birth = datetime.combine(dob, datetime.min.time())
     audit.record("CUSTOMER_CREATED", "customer", customer.id, actor=user,
                  new_value=name, reason="Onboarding")
     db.session.commit()
@@ -759,7 +815,7 @@ def customer_overview(user, cid):
                    .all())
 
     return jsonify({
-        "customer": customer.serialize(),
+        "customer": {**customer.serialize(), **(review_engine.onboarding_summary(customer) or {})},
         "risk": latest.serialize() if latest else None,
         "open_cases": [c.serialize() for c in open_cases],
         "tasks": [_task_detail(t) for t in tasks],
@@ -3312,17 +3368,27 @@ def name_suggestions(user):
     q = (request.args.get("q") or "").strip()
     if len(q) < 3:
         return jsonify({"customers": [], "watchlist": []}), 200
-
     like = f"%{q.lower()}%"
-    existing = (Customer.query
-                .filter(Customer.organization_id == user.organization_id,
-                        func.lower(Customer.name).like(like))
-                .order_by(Customer.name).limit(10).all())
+    query = (Customer.query
+             .filter(Customer.organization_id == user.organization_id,
+                     func.lower(Customer.name).like(like)))
+    # Filter by the type being created: a company called "Smith" is not the
+    # duplicate of a person called Smith.
+    ctype = (request.args.get("customer_type") or "").strip().upper()
+    if ctype in CUSTOMER_TYPES:
+        query = query.filter(Customer.customer_type == ctype)
+    existing = query.order_by(Customer.name).limit(10).all()
     hits = watchlist_service.suggest(q, limit=25)
+    summaries = review_engine.onboarding_summaries(existing)
+    dobs = party_service.dates_of_birth(existing)
     return jsonify({
         "customers": [{"id": c.id, "name": c.name, "status": c.status,
                        "customer_type": c.customer_type,
-                       "risk_level": c.risk_level} for c in existing],
+                       "risk_level": c.risk_level,
+                       "country": c.country, "country_name": country_name(c.country),
+                       "date_of_birth": dobs.get(c.id),
+                       "legal_form": c.legal_form,
+                       **summaries.get(c.id, {})} for c in existing],
         "watchlist": [{"name": e.name, "source": e.source,
                        "entity_type": e.entity_type, "country": e.country,
                        "programs": e.programs or []} for e in hits],

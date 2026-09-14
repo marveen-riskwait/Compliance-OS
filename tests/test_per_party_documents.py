@@ -9,7 +9,7 @@ from conftest import auth
 
 def _ph_company(client, tok, name="Meridian Privé SA"):
     return client.post("/api/customers", headers=auth(tok),
-                       json={"name": name, "customer_type": "COMPANY",
+                       json={"allow_duplicate": True, "name": name, "customer_type": "COMPANY",
                              "country": "Luxembourg",
                              "legal_form": "PRIVATELY_HELD"}).get_json()["id"]
 

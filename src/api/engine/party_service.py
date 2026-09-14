@@ -142,6 +142,22 @@ def _party_class(kind):
     return Person
 
 
+def root_party_of(customer):
+    return Party.query.get(customer.root_party_id) if customer.root_party_id else None
+
+
+def dates_of_birth(customers):
+    """{customer_id: 'YYYY-MM-DD'} from each root party (one query)."""
+    ids = {c.root_party_id: c.id for c in customers if c.root_party_id}
+    if not ids:
+        return {}
+    out = {}
+    for p in Party.query.filter(Party.id.in_(list(ids))).all():
+        if p.date_of_birth:
+            out[ids[p.id]] = p.date_of_birth.isoformat()[:10]
+    return out
+
+
 def ensure_root_party(customer):
     if customer.root_party_id:
         return Party.query.get(customer.root_party_id)
